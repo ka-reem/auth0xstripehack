@@ -10,3 +10,7 @@ node_modules
 .env.*
 !.env.example
 .projects/*.local.json
+
+# private notes — never commit
+PLAN.private.md
+*.private.md
