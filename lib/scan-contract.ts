@@ -108,6 +108,11 @@ export type ScanResponse = {
   providers: ProviderReport[];
   matches: ScanMatch[];
   reviews: Record<string, ReviewDecision>;
+  payment?: {
+    enabled: boolean;
+    unlocked: boolean;
+    candidateCount: number;
+  };
   error: string | null;
 };
 

@@ -22,6 +22,8 @@ discovery signals that still require visual/audio comparison and human review.
 - Separate animated dashboard, multi-agent search sequence, results page, and
   case history.
 - JSON, print, and share-link evidence export.
+- Auth0 login through the official Next.js SDK.
+- Server-verified Stripe Checkout with a signed, HTTP-only report unlock.
 - A clearly labeled controlled benchmark for credential-free presentations.
 
 ## Local setup
@@ -44,6 +46,7 @@ the local Docker services:
 SEARXNG_URL=http://localhost:8080
 TRANSCRIPTION_WORKER_URL=http://localhost:8788
 TRANSCRIPTION_WORKER_TOKEN=relay-local-development
+APP_BASE_URL=http://localhost:3002
 ```
 
 Start the local transcript and search services:
@@ -86,6 +89,24 @@ REDDIT_USER_AGENT=web:relay-rights-monitor:1.0
 Without credentials, the scan still persists successfully. Each unavailable
 agent reports `credentials required` or `restricted` and never fabricates
 matches.
+
+## Auth and payments
+
+Auth0 uses a **Regular Web Application** because Relay has server-managed
+sessions and route handlers. The local Auth0 application must allow:
+
+- Callback: `http://localhost:3002/auth/callback`
+- Logout: `http://localhost:3002`
+- Web origin: `http://localhost:3002`
+
+The SDK reads `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`,
+`AUTH0_SECRET`, and `APP_BASE_URL`.
+
+When `STRIPE_SECRET_KEY` is configured, Relay creates a $5 Checkout Session on
+the server. The return route verifies the session directly with Stripe before
+issuing a signed, HTTP-only cookie scoped to that scan. The scan API withholds
+candidate details until that cookie is valid. When Stripe is not configured,
+payments are disabled and local/judge workflows remain accessible.
 
 SearXNG is used as a cross-platform web index and has JSON output enabled in
 `services/search/settings.yml`. Existing Google Programmable Search customers

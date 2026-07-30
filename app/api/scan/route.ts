@@ -17,6 +17,11 @@ import {
   readScan,
   setReviewDecision,
 } from "../../../lib/scan-store";
+import {
+  hasScanUnlock,
+  paymentsEnabled,
+  presentReport,
+} from "../../../lib/payment";
 
 function isSourceType(value: unknown): value is ScanSourceType {
   return value === "link" || value === "upload";
@@ -130,10 +135,10 @@ export async function GET(request: Request) {
     Date.now() - Date.parse(report.updatedAt) > 15_000;
   if (report.status === "queued" || runningTooLong) {
     const completed = await processScan(report, ownerKey);
-    return NextResponse.json(completed);
+    return NextResponse.json(await presentReport(completed, request));
   }
 
-  return NextResponse.json(report);
+  return NextResponse.json(await presentReport(report, request));
 }
 
 export async function PATCH(request: Request) {
@@ -181,6 +186,12 @@ export async function PATCH(request: Request) {
       { status: 404 },
     );
   }
+  if (paymentsEnabled() && !(await hasScanUnlock(request, scanId))) {
+    return NextResponse.json(
+      { error: "Unlock this evidence report before recording a review." },
+      { status: 402 },
+    );
+  }
 
   const updated = await setReviewDecision({
     scanId,
@@ -189,5 +200,5 @@ export async function PATCH(request: Request) {
     status: body.status,
     note,
   });
-  return NextResponse.json(updated);
+  return NextResponse.json(await presentReport(updated, request));
 }

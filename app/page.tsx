@@ -13,8 +13,8 @@ import type {
 } from "../lib/scan-contract";
 
 function AuthNav() {
-  const { user, isLoading } = useUser();
-  if (isLoading) return null;
+  const { user, isLoading, error } = useUser();
+  if (isLoading || error) return null;
   return user ? (
     <a className="nav-link" href="/auth/logout">
       Log out <span aria-hidden="true">↗</span>
@@ -24,6 +24,27 @@ function AuthNav() {
       Log in <span aria-hidden="true">↗</span>
     </a>
   );
+}
+
+function AuthNavSlot() {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth-status")
+      .then((response) => response.json())
+      .then((payload: { enabled?: boolean }) => {
+        if (!cancelled) setEnabled(payload.enabled === true);
+      })
+      .catch(() => {
+        if (!cancelled) setEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return enabled ? <AuthNav /> : null;
 }
 
 type Mode = "link" | "upload";
@@ -615,7 +636,7 @@ export default function Home() {
         <a className="nav-link" href="/history">
           Case history <span aria-hidden="true">↗</span>
         </a>
-        <AuthNav />
+        <AuthNavSlot />
       </nav>
 
       <section className="hero" id="top">

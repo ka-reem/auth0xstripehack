@@ -51,6 +51,9 @@ type RelayBindings = {
   GOOGLE_CSE_ID?: string;
   TRANSCRIPTION_WORKER_URL?: string;
   TRANSCRIPTION_WORKER_TOKEN?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_API_KEY?: string;
+  APP_BASE_URL?: string;
 };
 
 const memoryScans = new Map<string, StoredScan>();
@@ -81,7 +84,10 @@ export function runtimeSecret(
     | "GOOGLE_CSE_API_KEY"
     | "GOOGLE_CSE_ID"
     | "TRANSCRIPTION_WORKER_URL"
-    | "TRANSCRIPTION_WORKER_TOKEN",
+    | "TRANSCRIPTION_WORKER_TOKEN"
+    | "STRIPE_SECRET_KEY"
+    | "STRIPE_API_KEY"
+    | "APP_BASE_URL",
 ) {
   const bindingValue = bindings()[name];
   if (typeof bindingValue === "string" && bindingValue.trim()) {

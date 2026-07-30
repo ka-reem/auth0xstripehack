@@ -66,34 +66,8 @@ export default function ResultsPage() {
   const [loadError, setLoadError] = useState("");
   const [reviewSaving, setReviewSaving] = useState("");
   const [copied, setCopied] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
-
-  // Paywall: unlocked via ?unlocked=1 (Stripe redirect) or a prior purchase.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const paidNow = params.get("unlocked") === "1";
-    let stored = false;
-    try {
-      stored = window.localStorage.getItem("clippolice_unlocked") === "1";
-      if (paidNow) window.localStorage.setItem("clippolice_unlocked", "1");
-    } catch {
-      // ignore storage errors
-    }
-    setUnlocked(paidNow || stored);
-  }, []);
-
-  const startUnlock = () => {
-    try {
-      window.localStorage.setItem(
-        "clippolice_return_to",
-        window.location.pathname + window.location.search,
-      );
-    } catch {
-      // ignore storage errors
-    }
-    window.location.href =
-      "https://buy.stripe.com/test_fZu00i52a4Wjf1p5TE2cg00";
-  };
+  const [checkoutStarting, setCheckoutStarting] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -246,6 +220,39 @@ export default function ResultsPage() {
 
   const isReady = report?.status === "completed";
   const isDemo = report?.dataMode === "controlled-demo";
+  const candidateCount =
+    report?.payment?.candidateCount ?? report?.matches.length ?? 0;
+  const reportLocked = Boolean(
+    report?.payment?.enabled && !report.payment.unlocked && candidateCount,
+  );
+
+  async function startUnlock() {
+    if (!report || checkoutStarting) return;
+    setCheckoutStarting(true);
+    setCheckoutError("");
+    try {
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scanId: report.scanId }),
+      });
+      const payload = (await response.json()) as {
+        url?: string;
+        error?: string;
+      };
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error || "Stripe Checkout could not be started.");
+      }
+      window.location.assign(payload.url);
+    } catch (error) {
+      setCheckoutError(
+        error instanceof Error
+          ? error.message
+          : "Stripe Checkout could not be started.",
+      );
+      setCheckoutStarting(false);
+    }
+  }
 
   return (
     <main className="results-page dashboard-ready" onPointerMove={moveCursor}>
@@ -304,7 +311,7 @@ export default function ResultsPage() {
                 PERSISTENT SCAN REPORT
               </div>
               <h1>
-                {report.matches.length
+                {candidateCount
                   ? "Candidate reuploads found"
                   : "Provider scan complete"}
               </h1>
@@ -313,13 +320,25 @@ export default function ResultsPage() {
               </p>
             </div>
             <div className="report-actions">
-              <button type="button" onClick={exportEvidence}>
+              <button
+                type="button"
+                onClick={exportEvidence}
+                disabled={reportLocked}
+              >
                 Export evidence
               </button>
-              <button type="button" onClick={copyReportLink}>
+              <button
+                type="button"
+                onClick={copyReportLink}
+                disabled={reportLocked}
+              >
                 {copied ? "Link copied" : "Copy report link"}
               </button>
-              <button type="button" onClick={() => window.print()}>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                disabled={reportLocked}
+              >
                 Print report
               </button>
             </div>
@@ -363,7 +382,7 @@ export default function ResultsPage() {
           <div className="rights-summary">
             <article>
               <span>CANDIDATE POSTS</span>
-              <strong>{report.matches.length.toString().padStart(2, "0")}</strong>
+              <strong>{candidateCount.toString().padStart(2, "0")}</strong>
               <small>
                 {isDemo ? "controlled benchmark set" : "returned by official APIs"}
               </small>
@@ -435,12 +454,13 @@ export default function ResultsPage() {
             </p>
           </div>
 
-          {report.matches.length && !unlocked ? (
+          {reportLocked ? (
             <div
+              className="secure-unlock"
               style={{
                 border: "1px solid rgba(255,255,255,0.15)",
                 borderRadius: 16,
-                padding: "20px 22px",
+                padding: "30px 32px",
                 margin: "4px 0 20px",
                 background: "rgba(255,255,255,0.04)",
                 display: "flex",
@@ -451,28 +471,35 @@ export default function ResultsPage() {
               }}
             >
               <div>
-                <strong style={{ fontSize: 16 }}>
-                  Unlock all {report.matches.length} results
+                <strong style={{ fontSize: 24 }}>
+                  Unlock all {candidateCount} results
                 </strong>
-                <p style={{ margin: "4px 0 0", opacity: 0.7, fontSize: 13 }}>
-                  See every reposter, their reach, and takedown drafts.
+                <p style={{ margin: "7px 0 0", opacity: 0.7, fontSize: 16 }}>
+                  Stripe verifies the payment before Relay releases evidence.
                 </p>
+                {checkoutError && (
+                  <p role="alert" style={{ margin: "9px 0 0", color: "#ffb4a4" }}>
+                    {checkoutError}
+                  </p>
+                )}
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  onClick={startUnlock}
+                  onClick={() => void startUnlock()}
+                  disabled={checkoutStarting}
                   style={{
-                    padding: "11px 20px",
+                    padding: "14px 24px",
                     borderRadius: 10,
                     border: "none",
                     background: "#fff",
                     color: "#000",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    fontSize: 16,
+                    cursor: checkoutStarting ? "wait" : "pointer",
                   }}
                 >
-                  Unlock full results — $5
+                  {checkoutStarting ? "Opening secure checkout…" : "Unlock results — $5"}
                 </button>
                 <button
                   type="button"
@@ -491,21 +518,8 @@ export default function ResultsPage() {
                 </button>
               </div>
             </div>
-          ) : null}
-
-          {report.matches.length ? (
-            <div
-              className="result-grid"
-              style={
-                unlocked
-                  ? undefined
-                  : {
-                      filter: "blur(7px)",
-                      pointerEvents: "none",
-                      userSelect: "none",
-                    }
-              }
-            >
+          ) : report.matches.length ? (
+            <div className="result-grid">
               {report.matches.map((result, index) => {
                 const reviewDecision = report.reviews[result.id];
 

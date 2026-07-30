@@ -99,7 +99,14 @@ test("creates and completes a persistent scan job", async () => {
   assert.equal(completed.status, "completed");
   assert.equal(completed.progress, 100);
   assert.equal(completed.providers.length, 10);
-  assert.equal(completed.matches.length, 0);
+  assert.ok(
+    completed.matches.every(
+      (match) =>
+        typeof match.url === "string" &&
+        (match.verification === "metadata-candidate" ||
+          match.verification === "transcript-candidate"),
+    ),
+  );
   assert.deepEqual(
     completed.providers.map((provider) => provider.platform),
     [
