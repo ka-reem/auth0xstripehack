@@ -66,6 +66,34 @@ export default function ResultsPage() {
   const [loadError, setLoadError] = useState("");
   const [reviewSaving, setReviewSaving] = useState("");
   const [copied, setCopied] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
+
+  // Paywall: unlocked via ?unlocked=1 (Stripe redirect) or a prior purchase.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paidNow = params.get("unlocked") === "1";
+    let stored = false;
+    try {
+      stored = window.localStorage.getItem("clippolice_unlocked") === "1";
+      if (paidNow) window.localStorage.setItem("clippolice_unlocked", "1");
+    } catch {
+      // ignore storage errors
+    }
+    setUnlocked(paidNow || stored);
+  }, []);
+
+  const startUnlock = () => {
+    try {
+      window.localStorage.setItem(
+        "clippolice_return_to",
+        window.location.pathname + window.location.search,
+      );
+    } catch {
+      // ignore storage errors
+    }
+    window.location.href =
+      "https://buy.stripe.com/test_fZu00i52a4Wjf1p5TE2cg00";
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -407,8 +435,77 @@ export default function ResultsPage() {
             </p>
           </div>
 
+          {report.matches.length && !unlocked ? (
+            <div
+              style={{
+                border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: 16,
+                padding: "20px 22px",
+                margin: "4px 0 20px",
+                background: "rgba(255,255,255,0.04)",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 14,
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div>
+                <strong style={{ fontSize: 16 }}>
+                  Unlock all {report.matches.length} results
+                </strong>
+                <p style={{ margin: "4px 0 0", opacity: 0.7, fontSize: 13 }}>
+                  See every reposter, their reach, and takedown drafts.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={startUnlock}
+                  style={{
+                    padding: "11px 20px",
+                    borderRadius: 10,
+                    border: "none",
+                    background: "#fff",
+                    color: "#000",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Unlock full results — $5
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  title="Coming soon"
+                  style={{
+                    padding: "11px 20px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "transparent",
+                    color: "rgba(255,255,255,0.4)",
+                    cursor: "not-allowed",
+                  }}
+                >
+                  Membership — Coming Soon
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {report.matches.length ? (
-            <div className="result-grid">
+            <div
+              className="result-grid"
+              style={
+                unlocked
+                  ? undefined
+                  : {
+                      filter: "blur(7px)",
+                      pointerEvents: "none",
+                      userSelect: "none",
+                    }
+              }
+            >
               {report.matches.map((result, index) => {
                 const reviewDecision = report.reviews[result.id];
 
