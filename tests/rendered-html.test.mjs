@@ -1,91 +1,172 @@
 import assert from "node:assert/strict";
-import { access, readFile, readdir } from "node:fs/promises";
-import test from "node:test";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import test, { after, before } from "node:test";
 
-const developmentPreviewMeta =
-  /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
-const templateRoot = new URL("../", import.meta.url);
-const previewRoot = new URL("../app/_sites-preview/", import.meta.url);
+const projectRoot = fileURLToPath(new URL("../", import.meta.url));
+const vinextCli = fileURLToPath(
+  new URL("../node_modules/vinext/dist/cli.js", import.meta.url),
+);
+const baseUrl = "http://localhost:3217";
+let server;
+let serverOutput = "";
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
+before(async () => {
+  server = spawn(process.execPath, [vinextCli, "dev", "--port", "3217"], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      WRANGLER_LOG_PATH: ".wrangler/wrangler-test.log",
     },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  server.stdout.on("data", (chunk) => {
+    serverOutput += chunk.toString();
+  });
+  server.stderr.on("data", (chunk) => {
+    serverOutput += chunk.toString();
+  });
+
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch(baseUrl);
+      if (response.ok) return;
+    } catch {
+      // The local test server is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Test server did not start.\n${serverOutput}`);
+});
+
+after(() => {
+  server?.kill();
+});
+
+function request(path, init) {
+  return fetch(`${baseUrl}${path}`, init);
 }
 
-test("server-renders the starter loading skeleton", async () => {
-  const response = await render();
+test("renders the Relay source dashboard", async () => {
+  const response = await request("/");
+
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, developmentPreviewMeta);
-  assert.match(html, /<title>Your site is taking shape<\/title>/i);
-  assert.match(html, /Building your site/);
-  assert.match(html, /Your site is taking shape/);
-  assert.match(
-    html,
-    /Your first version will appear here automatically when it’s ready\./,
-  );
-  assert.doesNotMatch(html, /Codex/);
-  assert.match(html, /react-loading-skeleton/);
-  assert.match(html, /role="status"/);
+  assert.match(html, /Know where your/);
+  assert.match(html, /video travels/);
+  assert.match(html, /Scan for copies/);
+  assert.match(html, /authorized to monitor/);
 });
 
-test("keeps the loading skeleton scoped and disposable", async () => {
-  const [preview, css, page, layout, packageJson, files] = await Promise.all([
-    readFile(new URL("SkeletonPreview.tsx", previewRoot), "utf8"),
-    readFile(new URL("preview.css", previewRoot), "utf8"),
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readdir(previewRoot),
-  ]);
-
-  assert.deepEqual(files.sort(), ["SkeletonPreview.tsx", "preview.css"]);
-  assert.match(preview, /from "react-loading-skeleton"/);
-  assert.match(preview, /baseColor="#eceae7"/);
-  assert.match(preview, /highlightColor="#f9f8f6"/);
-  assert.match(preview, /duration=\{2\.8\}/);
-  assert.match(preview, /sites-skeleton-search-placeholder/);
-  assert.match(packageJson, /"react-loading-skeleton": "3\.5\.0"/);
-
-  const shellIndex = preview.indexOf('className="sites-skeleton-shell"');
-  const statusIndex = preview.indexOf('className="sites-skeleton-status"');
-  assert.ok(shellIndex >= 0 && statusIndex > shellIndex);
-  assert.match(css, /position:\s*fixed/);
-  assert.match(css, /inset:\s*0/);
-  assert.match(css, /opacity:\s*0\.52/);
-  assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.doesNotMatch(css, /#020617|canvas|pets|progress/i);
-  assert.doesNotMatch(
-    preview,
-    /loading-spinner|status-mark|status-progress|canvas|cookie|random/i,
+test("renders the standalone report shell", async () => {
+  const response = await request(
+    "/results?scan=test-scan&source=https%3A%2F%2Fexample.com%2Foriginal&sourceType=link",
   );
 
-  assert.match(page, /export const metadata:\s*Metadata/);
-  assert.match(page, /"codex-preview": "development"/);
-  assert.match(page, /<SkeletonPreview \/>/);
-  assert.match(layout, /title:\s*"Starter Project"/);
-  assert.doesNotMatch(layout, /codex-preview|_sites-preview|themeColor|\bViewport\b/);
-  assert.doesNotMatch(css, /(^|\s)(html|body)\s*\{/m);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /RIGHTS MONITOR/);
+  assert.match(html, /PROVIDER JOB ACTIVE/);
+});
 
-  await assert.rejects(
-    access(new URL("public/_sites-preview", templateRoot)),
+test("creates and completes a persistent scan job", async () => {
+  const response = await request("/api/scan", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      source: "https://example.com/original",
+      sourceType: "link",
+    }),
+  });
+
+  assert.equal(response.status, 202);
+  const payload = await response.json();
+  assert.equal(payload.source, "https://example.com/original");
+  assert.equal(payload.query, "original");
+  assert.equal(payload.sourceType, "link");
+  assert.equal(payload.dataMode, "live");
+  assert.equal(payload.status, "queued");
+  assert.equal(payload.matches.length, 0);
+
+  const completedResponse = await request(
+    `/api/scan?scan=${encodeURIComponent(payload.scanId)}`,
   );
+  assert.equal(completedResponse.status, 200);
+  const completed = await completedResponse.json();
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.progress, 100);
+  assert.equal(completed.providers.length, 5);
+  assert.equal(completed.matches.length, 0);
+  assert.deepEqual(
+    completed.providers.map((provider) => provider.platform),
+    ["YouTube", "TikTok", "Instagram", "Vimeo", "X"],
+  );
+  assert.match(completed.notice, /without fabricating matches/i);
+});
+
+test("runs the controlled benchmark and persists a human review", async () => {
+  const createdResponse = await request("/api/scan", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      source: "relay-controlled-benchmark.mp4",
+      sourceType: "link",
+      demo: true,
+    }),
+  });
+  assert.equal(createdResponse.status, 202);
+  const created = await createdResponse.json();
+  assert.equal(created.sourceType, "demo");
+  assert.equal(created.dataMode, "controlled-demo");
+
+  const completedResponse = await request(
+    `/api/scan?scan=${encodeURIComponent(created.scanId)}`,
+  );
+  assert.equal(completedResponse.status, 200);
+  const completed = await completedResponse.json();
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.matches.length, 6);
+  assert.equal(completed.matches[0].verification, "controlled-match");
+  assert.match(completed.notice, /controlled benchmark/i);
+
+  const reviewResponse = await request("/api/scan", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      scanId: created.scanId,
+      matchId: completed.matches[0].id,
+      status: "investigate",
+      note: "Confirm licensing with the channel owner.",
+    }),
+  });
+  assert.equal(reviewResponse.status, 200);
+  const reviewed = await reviewResponse.json();
+  assert.equal(
+    reviewed.reviews[completed.matches[0].id].status,
+    "investigate",
+  );
+
+  const historyResponse = await request("/api/scans");
+  assert.equal(historyResponse.status, 200);
+  const history = await historyResponse.json();
+  const historyItem = history.scans.find(
+    (scan) => scan.scanId === created.scanId,
+  );
+  assert.equal(historyItem.candidateCount, 6);
+  assert.equal(historyItem.reviewedCount, 1);
+});
+
+test("rejects incomplete scan requests", async () => {
+  const response = await request("/api/scan", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  assert.equal(response.status, 400);
+  const payload = await response.json();
+  assert.match(payload.error, /required/i);
 });

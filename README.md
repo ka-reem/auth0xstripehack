@@ -1,98 +1,98 @@
-# vinext-starter
+# Relay Rights
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Relay registers an original video URL or file, creates a persistent scan job,
+and searches supported official platform APIs for public posts with overlapping
+metadata. Results are presented as review candidates—not infringement verdicts
+or verified visual matches.
 
-## Prerequisites
+The product also includes a clearly labeled controlled benchmark for
+credential-free presentations. It demonstrates multimodal evidence,
+transformation explanations, persistent human review decisions, case history,
+and JSON/print evidence export without presenting synthetic specimens as live
+platform detections.
 
-- Node.js `>=22.13.0`
+## Local setup
 
-## Quick Start
+Requirements: Node.js 22.13 or newer.
 
 ```bash
 npm install
 npm run dev
+```
+
+The app will choose an available localhost port. The current development
+instance for this workspace is running at `http://localhost:3002`.
+
+Provider credentials are optional. Copy `.env.example` to `.env` and add the
+keys you have:
+
+```dotenv
+YOUTUBE_API_KEY=
+VIMEO_ACCESS_TOKEN=
+X_BEARER_TOKEN=
+```
+
+Without credentials, scans still create and persist successfully. The report
+shows each connector as `credentials required` or `restricted` and returns no
+fabricated matches.
+
+## Backend flow
+
+1. `POST /api/scan` validates a public URL or multipart video upload.
+2. Link metadata is resolved only through supported provider oEmbed endpoints.
+3. Uploaded videos are stored privately in the `UPLOADS` R2 bucket with a
+   SHA-256 integrity hash.
+4. A queued scan record is written to the `DB` D1 database.
+5. `GET /api/scan?scan=<id>` processes or retrieves the job.
+6. YouTube, Vimeo, and X connectors run in parallel when credentials exist.
+7. The report persists provider status, candidates, timestamps, and errors.
+8. Human review decisions and notes persist in `scan_reviews`.
+
+## Presentation flow
+
+1. Open `http://localhost:3002`.
+2. Select **Run controlled evidence demo**.
+3. Let the multi-agent search animation complete.
+4. Review visual, audio, temporal, matched-window, and transformation signals.
+5. Save a human decision and note.
+6. Export or print the evidence report.
+7. Open **Case history** to return to the saved case.
+
+The benchmark is always labeled as controlled data. Live scans never fabricate
+matches when provider credentials are unavailable.
+
+The generated D1 migration is under `drizzle/`.
+
+## Platform capability boundaries
+
+- **YouTube:** keyword discovery through the official Data API.
+- **Vimeo:** public catalog metadata search through the official API.
+- **X:** recent public posts with video through the official recent-search API.
+- **TikTok:** the official Display API lists videos belonging to an authorized
+  creator; it does not provide general public-video search.
+- **Instagram:** no general public Reels search endpoint is available for this
+  cross-account workflow.
+
+All returned candidates are metadata discoveries. Detecting crops, reframes,
+speed changes, overlays, audio replacements, and partial clips requires a
+separate media-processing system with legally obtained candidate video bytes,
+frame/audio fingerprinting, and a verification queue.
+
+## Identity
+
+When hosted inside an authenticated OpenAI workspace, scan ownership uses the
+forwarded `oai-authenticated-user-email` header. Local development uses an
+anonymous local owner. Auth0 from the teammate prototype is intentionally not
+included because the project runtime already provides an identity path and the
+prototype had no working Auth0 configuration.
+
+## Commands
+
+```bash
 npm run build
+npm test
+npm run lint
+npm run db:generate
 ```
 
-This starter does not use `wrangler.jsonc`.
-
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+No deployment is required for local development.

@@ -1,5 +1,20 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785451818559,
+      "tag": "0000_rare_warbound",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785452631084,
+      "tag": "0001_gorgeous_shatterstar",
+      "breakpoints": true
+    }
+  ]
 }

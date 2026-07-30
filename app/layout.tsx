@@ -23,26 +23,28 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase: new URL(origin),
-    title: "Relay — Cross-platform video discovery",
+    title: "Relay Rights — Find unauthorized video reuploads",
     description:
-      "Submit a video or paste a link to discover related versions across the web.",
+      "Monitor public platforms for copies, edits, crops, and reposts of your original video.",
     openGraph: {
-      title: "Relay — Cross-platform video discovery",
-      description: "Submit a video. Follow the signal.",
+      title: "Relay Rights — Know where your video travels",
+      description:
+        "Find public copies and transformed reuploads of your original video.",
       type: "website",
       images: [
         {
           url: `${origin}/og.png`,
           width: 1536,
           height: 1024,
-          alt: "Relay cross-platform video discovery",
+          alt: "Relay cross-platform video rights monitoring",
         },
       ],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Relay — Cross-platform video discovery",
-      description: "Submit a video. Follow the signal.",
+      title: "Relay Rights — Know where your video travels",
+      description:
+        "Find public copies and transformed reuploads of your original video.",
       images: [`${origin}/og.png`],
     },
   };
