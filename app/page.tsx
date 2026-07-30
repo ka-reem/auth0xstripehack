@@ -46,6 +46,13 @@ const searchAgents = [
     className: "agent-instagram",
   },
   {
+    platform: "Facebook",
+    short: "FB",
+    task: "Checking Rights Manager and indexed public pages",
+    count: "APPROVED SCOPE",
+    className: "agent-facebook",
+  },
+  {
     platform: "Vimeo",
     short: "VI",
     task: "Searching public catalog metadata",
@@ -58,6 +65,34 @@ const searchAgents = [
     task: "Searching recent public video posts",
     count: "7-DAY WINDOW",
     className: "agent-x",
+  },
+  {
+    platform: "Reddit",
+    short: "RD",
+    task: "Searching public video posts with OAuth",
+    count: "OFFICIAL API",
+    className: "agent-reddit",
+  },
+  {
+    platform: "Dailymotion",
+    short: "DM",
+    task: "Checking indexed public video pages",
+    count: "WEB INDEX",
+    className: "agent-dailymotion",
+  },
+  {
+    platform: "Twitch",
+    short: "TW",
+    task: "Checking indexed public clips and VOD pages",
+    count: "WEB INDEX",
+    className: "agent-twitch",
+  },
+  {
+    platform: "Transcript web",
+    short: "WB",
+    task: "Searching exact spoken phrases across platforms",
+    count: "SEARXNG / CSE",
+    className: "agent-web",
   },
 ];
 
@@ -222,7 +257,10 @@ function SearchMission({
 
       <div className="mission-hud mission-hud-left">
         <span>MONITORING AGENTS</span>
-        <b>05 / 05</b>
+        <b>
+          {activeAgents.length.toString().padStart(2, "0")} /{" "}
+          {activeAgents.length.toString().padStart(2, "0")}
+        </b>
       </div>
       <div className="mission-hud mission-hud-right">
         <span>{controlled ? "BENCHMARK COVERAGE" : "PUBLIC FIELD COVERAGE"}</span>
@@ -302,6 +340,7 @@ export default function Home() {
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [missionInput, setMissionInput] = useState("");
   const [isDemoRun, setIsDemoRun] = useState(false);
+  const [transcriptHint, setTranscriptHint] = useState("");
 
   const inputName =
     mode === "link"
@@ -449,6 +488,9 @@ export default function Home() {
               body: (() => {
                 const form = new FormData();
                 form.set("file", file);
+                if (transcriptHint.trim()) {
+                  form.set("transcriptHint", transcriptHint.trim());
+                }
                 return form;
               })(),
             }
@@ -458,6 +500,7 @@ export default function Home() {
               body: JSON.stringify({
                 source: url.trim(),
                 sourceType: "link",
+                transcriptHint: transcriptHint.trim() || undefined,
               }),
             };
       const response = await fetch("/api/scan", {
@@ -675,6 +718,32 @@ export default function Home() {
               </label>
             )}
 
+            <details className="transcript-seed">
+              <summary>
+                <span>Add transcript or memorable spoken lines</span>
+                <i aria-hidden="true">+</i>
+              </summary>
+              <label htmlFor="transcript-hint">
+                TRANSCRIPT DISCOVERY SEED
+              </label>
+              <textarea
+                id="transcript-hint"
+                placeholder="Paste a transcript or a few distinctive sentences from the video"
+                value={transcriptHint}
+                onChange={(event) => {
+                  setTranscriptHint(event.target.value);
+                  setError("");
+                }}
+                maxLength={20000}
+                rows={4}
+                disabled={stage === "scanning"}
+              />
+              <small>
+                Relay searches exact spoken phrases across indexed public video pages.
+                Uploaded files can also use the local Faster-Whisper worker.
+              </small>
+            </details>
+
             <p className={`form-error ${error ? "visible" : ""}`} role="alert">
               {error || "Everything looks good."}
             </p>
@@ -718,9 +787,13 @@ export default function Home() {
               <div>
                 <b>YouTube</b>
                 <b>TikTok</b>
-                <b>Instagram</b>
+                <b>Meta</b>
                 <b>Vimeo</b>
                 <b>X</b>
+                <b>Reddit</b>
+                <b>Dailymotion</b>
+                <b>Twitch</b>
+                <b>Transcript web</b>
               </div>
             </div>
             <p className="scan-scope">

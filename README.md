@@ -1,98 +1,156 @@
 # Relay Rights
 
-Relay registers an original video URL or file, creates a persistent scan job,
-and searches supported official platform APIs for public posts with overlapping
-metadata. Results are presented as review candidates—not infringement verdicts
-or verified visual matches.
+Relay helps a rights holder discover possible public reuploads of a source
+video. A user can upload a video, paste an authorized public source URL, or add
+known transcript lines. Relay then runs platform-specific discovery agents and
+collects review candidates on a separate evidence page.
 
-The product also includes a clearly labeled controlled benchmark for
-credential-free presentations. It demonstrates multimodal evidence,
-transformation explanations, persistent human review decisions, case history,
-and JSON/print evidence export without presenting synthetic specimens as live
-platform detections.
+Candidates are not infringement verdicts. Transcript and metadata overlap are
+discovery signals that still require visual/audio comparison and human review.
+
+## What is implemented
+
+- Private source uploads with SHA-256 integrity hashes.
+- Persistent D1 scan jobs, reports, review decisions, and notes.
+- Source transcription through a local Faster-Whisper worker.
+- Public-source media retrieval through yt-dlp without cookies or access
+  bypasses.
+- Distinctive phrase extraction from supplied or generated transcripts.
+- Parallel discovery agents for YouTube, Vimeo, X, Reddit, and a web index.
+- Capability-status agents for TikTok, Instagram, Facebook, Dailymotion, and
+  Twitch when their public APIs do not support this search workflow.
+- Separate animated dashboard, multi-agent search sequence, results page, and
+  case history.
+- JSON, print, and share-link evidence export.
+- A clearly labeled controlled benchmark for credential-free presentations.
 
 ## Local setup
 
-Requirements: Node.js 22.13 or newer.
+Requirements:
+
+- Node.js 22.13 or newer
+- Docker Desktop with Linux containers
+
+Install the app dependencies:
 
 ```bash
 npm install
+```
+
+Create `.env` from `.env.example`. The included defaults connect the app to
+the local Docker services:
+
+```dotenv
+SEARXNG_URL=http://localhost:8080
+TRANSCRIPTION_WORKER_URL=http://localhost:8788
+TRANSCRIPTION_WORKER_TOKEN=relay-local-development
+```
+
+Start the local transcript and search services:
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+Start Relay:
+
+```bash
 npm run dev
 ```
 
-The app will choose an available localhost port. The current development
-instance for this workspace is running at `http://localhost:3002`.
+The current workspace uses `http://localhost:3002`.
 
-Provider credentials are optional. Copy `.env.example` to `.env` and add the
-keys you have:
+The first real transcription downloads the configured Whisper model into a
+persistent Docker volume. `small` on CPU with `int8` computation is the default.
+Change `WHISPER_MODEL` to `tiny` for a faster, lower-accuracy demo.
+
+Stop the supporting services with:
+
+```bash
+docker compose -f docker-compose.local.yml down
+```
+
+## Optional provider credentials
+
+Add any credentials you have to `.env`:
 
 ```dotenv
 YOUTUBE_API_KEY=
 VIMEO_ACCESS_TOKEN=
 X_BEARER_TOKEN=
+REDDIT_CLIENT_ID=
+REDDIT_CLIENT_SECRET=
+REDDIT_USER_AGENT=web:relay-rights-monitor:1.0
 ```
 
-Without credentials, scans still create and persist successfully. The report
-shows each connector as `credentials required` or `restricted` and returns no
-fabricated matches.
+Without credentials, the scan still persists successfully. Each unavailable
+agent reports `credentials required` or `restricted` and never fabricates
+matches.
 
-## Backend flow
+SearXNG is used as a cross-platform web index and has JSON output enabled in
+`services/search/settings.yml`. Existing Google Programmable Search customers
+can instead configure `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ID`, but Google has
+closed that API to new customers and announced discontinuation for January 1,
+2027.
+
+## Scan flow
 
 1. `POST /api/scan` validates a public URL or multipart video upload.
-2. Link metadata is resolved only through supported provider oEmbed endpoints.
-3. Uploaded videos are stored privately in the `UPLOADS` R2 bucket with a
-   SHA-256 integrity hash.
-4. A queued scan record is written to the `DB` D1 database.
-5. `GET /api/scan?scan=<id>` processes or retrieves the job.
-6. YouTube, Vimeo, and X connectors run in parallel when credentials exist.
-7. The report persists provider status, candidates, timestamps, and errors.
-8. Human review decisions and notes persist in `scan_reviews`.
+2. Uploads are stored privately in the `UPLOADS` R2 bucket.
+3. A queued scan record is written to the `DB` D1 database.
+4. `GET /api/scan?scan=<id>` starts or retrieves the job.
+5. Relay transcribes the source locally, unless the user supplied transcript
+   text.
+6. Relay extracts distinctive spoken phrases and combines them with the title.
+7. YouTube, Vimeo, X, Reddit, and web-index agents run in parallel.
+8. Candidate URLs are normalized, deduplicated, scored, and persisted.
+9. The user reviews candidates on `/results`, records a decision, and exports
+   evidence.
+
+## Platform boundaries
+
+- **YouTube:** official Data API keyword discovery. Captions for arbitrary
+  public videos are not exposed by the captions API.
+- **Vimeo:** official public catalog metadata search.
+- **X:** official recent public-post search with video filters.
+- **Reddit:** official OAuth search for public video/link posts.
+- **TikTok:** general public-video search requires approved Research API access;
+  Display API access is limited to an authorized creator's videos.
+- **Instagram and Facebook:** general public cross-account video search is not
+  available through their standard APIs. Rights Manager is the native Meta
+  rights workflow.
+- **Dailymotion:** the public API is oriented toward authenticated catalog and
+  account operations, not global transcript matching.
+- **Twitch:** Helix channel/category search does not search spoken transcripts.
+- **Web index:** transcript phrases are searched across public, indexed pages.
+  Search-engine indexing is incomplete and does not prove ownership.
+
+The local downloader accepts only allowlisted public video hosts, requires an
+explicit authorization flag, downloads no playlists, uses no browser cookies,
+and does not bypass logins, DRM, paywalls, or geographic restrictions.
 
 ## Presentation flow
 
 1. Open `http://localhost:3002`.
-2. Select **Run controlled evidence demo**.
+2. Use **Run controlled evidence demo** for the deterministic judge experience.
 3. Let the multi-agent search animation complete.
-4. Review visual, audio, temporal, matched-window, and transformation signals.
+4. Review the visual, audio, temporal, and transformation signals.
 5. Save a human decision and note.
 6. Export or print the evidence report.
 7. Open **Case history** to return to the saved case.
 
-The benchmark is always labeled as controlled data. Live scans never fabricate
-matches when provider credentials are unavailable.
+For a live transcript-led scan, paste a source URL or upload a file and expand
+**Add transcript or memorable spoken lines** when automatic transcription is
+not needed.
 
-The generated D1 migration is under `drizzle/`.
-
-## Platform capability boundaries
-
-- **YouTube:** keyword discovery through the official Data API.
-- **Vimeo:** public catalog metadata search through the official API.
-- **X:** recent public posts with video through the official recent-search API.
-- **TikTok:** the official Display API lists videos belonging to an authorized
-  creator; it does not provide general public-video search.
-- **Instagram:** no general public Reels search endpoint is available for this
-  cross-account workflow.
-
-All returned candidates are metadata discoveries. Detecting crops, reframes,
-speed changes, overlays, audio replacements, and partial clips requires a
-separate media-processing system with legally obtained candidate video bytes,
-frame/audio fingerprinting, and a verification queue.
-
-## Identity
-
-When hosted inside an authenticated OpenAI workspace, scan ownership uses the
-forwarded `oai-authenticated-user-email` header. Local development uses an
-anonymous local owner. Auth0 from the teammate prototype is intentionally not
-included because the project runtime already provides an identity path and the
-prototype had no working Auth0 configuration.
-
-## Commands
+## Verification
 
 ```bash
 npm run build
-npm test
 npm run lint
-npm run db:generate
+npm test
+python -m py_compile services/transcription-worker/main.py
+docker compose -f docker-compose.local.yml config --quiet
 ```
 
-No deployment is required for local development.
+No public deployment is required. Relay is configured for localhost use.

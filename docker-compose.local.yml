@@ -1,0 +1,23 @@
+services:
+  transcription:
+    build:
+      context: ./services/transcription-worker
+    environment:
+      RELAY_WORKER_TOKEN: ${TRANSCRIPTION_WORKER_TOKEN:-relay-local-development}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+    ports:
+      - "8788:8788"
+    volumes:
+      - whisper-models:/root/.cache/huggingface
+
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./services/search/settings.yml:/etc/searxng/settings.yml:ro
+
+volumes:
+  whisper-models:

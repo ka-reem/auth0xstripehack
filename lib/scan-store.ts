@@ -5,6 +5,7 @@ import type {
   ScanHistoryItem,
   ScanResponse,
 } from "./scan-contract";
+import { emptyTranscriptFields } from "./transcript-discovery";
 
 type StoredScan = {
   report: ScanResponse;
@@ -41,6 +42,15 @@ type RelayBindings = {
   YOUTUBE_API_KEY?: string;
   VIMEO_ACCESS_TOKEN?: string;
   X_BEARER_TOKEN?: string;
+  REDDIT_CLIENT_ID?: string;
+  REDDIT_CLIENT_SECRET?: string;
+  REDDIT_USER_AGENT?: string;
+  SEARXNG_URL?: string;
+  SEARXNG_TOKEN?: string;
+  GOOGLE_CSE_API_KEY?: string;
+  GOOGLE_CSE_ID?: string;
+  TRANSCRIPTION_WORKER_URL?: string;
+  TRANSCRIPTION_WORKER_TOKEN?: string;
 };
 
 const memoryScans = new Map<string, StoredScan>();
@@ -59,7 +69,19 @@ export function uploadBucket() {
 }
 
 export function runtimeSecret(
-  name: "YOUTUBE_API_KEY" | "VIMEO_ACCESS_TOKEN" | "X_BEARER_TOKEN",
+  name:
+    | "YOUTUBE_API_KEY"
+    | "VIMEO_ACCESS_TOKEN"
+    | "X_BEARER_TOKEN"
+    | "REDDIT_CLIENT_ID"
+    | "REDDIT_CLIENT_SECRET"
+    | "REDDIT_USER_AGENT"
+    | "SEARXNG_URL"
+    | "SEARXNG_TOKEN"
+    | "GOOGLE_CSE_API_KEY"
+    | "GOOGLE_CSE_ID"
+    | "TRANSCRIPTION_WORKER_URL"
+    | "TRANSCRIPTION_WORKER_TOKEN",
 ) {
   const bindingValue = bindings()[name];
   if (typeof bindingValue === "string" && bindingValue.trim()) {
@@ -140,6 +162,9 @@ function serialize(report: ScanResponse, ownerKey: string) {
 }
 
 function deserialize(row: ScanRow): StoredScan {
+  const storedMetadata = JSON.parse(
+    row.source_metadata,
+  ) as Partial<ScanResponse["sourceMetadata"]>;
   return {
     ownerKey: row.owner_key,
     report: {
@@ -152,9 +177,10 @@ function deserialize(row: ScanRow): StoredScan {
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
       dataMode: row.source_type === "demo" ? "controlled-demo" : "live",
-      sourceMetadata: JSON.parse(
-        row.source_metadata,
-      ) as ScanResponse["sourceMetadata"],
+      sourceMetadata: {
+        ...emptyTranscriptFields(),
+        ...storedMetadata,
+      } as ScanResponse["sourceMetadata"],
       providers: JSON.parse(row.providers) as ScanResponse["providers"],
       matches: JSON.parse(row.matches) as ScanResponse["matches"],
       reviews: {},

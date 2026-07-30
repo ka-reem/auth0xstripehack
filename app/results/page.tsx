@@ -13,8 +13,13 @@ const platformMarks: Record<Platform, string> = {
   YouTube: "YT",
   TikTok: "TT",
   Instagram: "IG",
+  Facebook: "FB",
   Vimeo: "VI",
   X: "X",
+  Reddit: "RD",
+  Dailymotion: "DM",
+  Twitch: "TW",
+  Web: "WB",
 };
 
 const reviewLabels: Record<ReviewStatus, string> = {
@@ -303,6 +308,30 @@ export default function ResultsPage() {
             <p>{report.notice}</p>
           </div>
 
+          <div
+            className={`transcript-intelligence transcript-${report.sourceMetadata.transcriptStatus}`}
+          >
+            <div>
+              <span>TRANSCRIPT DISCOVERY</span>
+              <strong>
+                {report.sourceMetadata.transcriptStatus.replaceAll("_", " ")}
+              </strong>
+            </div>
+            <p>{report.sourceMetadata.transcriptMessage}</p>
+            {report.sourceMetadata.transcriptExcerpt && (
+              <blockquote>
+                “{report.sourceMetadata.transcriptExcerpt}”
+              </blockquote>
+            )}
+            {report.sourceMetadata.discoveryPhrases.length > 0 && (
+              <div className="discovery-phrases">
+                {report.sourceMetadata.discoveryPhrases.map((phrase) => (
+                  <span key={phrase}>{phrase}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="rights-summary">
             <article>
               <span>CANDIDATE POSTS</span>
@@ -322,7 +351,9 @@ export default function ResultsPage() {
               <span>{isDemo ? "DEMO AGENTS" : "LIVE CONNECTORS"}</span>
               <strong>{metrics.liveConnectors.toString().padStart(2, "0")}</strong>
               <small>
-                {isDemo ? "controlled platform nodes" : "of five platform agents"}
+                {isDemo
+                  ? "controlled platform nodes"
+                  : "configured discovery agents"}
               </small>
             </article>
             <article>
@@ -523,8 +554,9 @@ export default function ResultsPage() {
               <h2>No candidates were returned.</h2>
               <p>
                 Add credentials for YouTube, Vimeo, or X to run their official
-                discovery APIs. TikTok and Instagram require different,
-                account-authorized access models.
+                discovery APIs. Add Reddit credentials or run the included
+                SearXNG service for transcript-led web discovery. TikTok,
+                Instagram, and Facebook require approved access models.
               </p>
             </div>
           )}

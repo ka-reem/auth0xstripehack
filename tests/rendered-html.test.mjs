@@ -98,13 +98,57 @@ test("creates and completes a persistent scan job", async () => {
   const completed = await completedResponse.json();
   assert.equal(completed.status, "completed");
   assert.equal(completed.progress, 100);
-  assert.equal(completed.providers.length, 5);
+  assert.equal(completed.providers.length, 10);
   assert.equal(completed.matches.length, 0);
   assert.deepEqual(
     completed.providers.map((provider) => provider.platform),
-    ["YouTube", "TikTok", "Instagram", "Vimeo", "X"],
+    [
+      "YouTube",
+      "TikTok",
+      "Instagram",
+      "Facebook",
+      "Vimeo",
+      "X",
+      "Reddit",
+      "Dailymotion",
+      "Twitch",
+      "Web",
+    ],
   );
-  assert.match(completed.notice, /without fabricating matches/i);
+  assert.match(
+    completed.notice,
+    /without fabricating matches|discovery candidates/i,
+  );
+});
+
+test("turns a supplied transcript into distinctive discovery phrases", async () => {
+  const response = await request("/api/scan", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      source: "https://example.com/transcript-source",
+      sourceType: "link",
+      transcriptHint:
+        "Our miniature satellite follows the cobalt river beyond the winter observatory. The final signal arrives exactly seventeen minutes before sunrise.",
+    }),
+  });
+
+  assert.equal(response.status, 202);
+  const created = await response.json();
+  assert.equal(created.sourceMetadata.transcriptStatus, "provided");
+  assert.equal(created.sourceMetadata.transcriptProvider, "manual");
+  assert.ok(created.sourceMetadata.discoveryPhrases.length >= 1);
+
+  const completedResponse = await request(
+    `/api/scan?scan=${encodeURIComponent(created.scanId)}`,
+  );
+  const completed = await completedResponse.json();
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.sourceMetadata.transcriptStatus, "provided");
+  assert.match(
+    completed.sourceMetadata.discoveryPhrases.join(" "),
+    /cobalt river|seventeen minutes/i,
+  );
 });
 
 test("runs the controlled benchmark and persists a human review", async () => {

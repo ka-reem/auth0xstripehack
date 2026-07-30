@@ -4,6 +4,10 @@ import type {
   ScanMatch,
 } from "./scan-contract";
 import { runtimeSecret } from "./scan-store";
+import {
+  discoverySeeds,
+  textSimilarity,
+} from "./transcript-discovery";
 
 type ConnectorResult = {
   report: ProviderReport;
@@ -14,6 +18,7 @@ type YouTubeSearchItem = {
   id?: { videoId?: string };
   snippet?: {
     title?: string;
+    description?: string;
     channelTitle?: string;
     publishedAt?: string;
   };
@@ -51,6 +56,35 @@ type XUser = {
   name?: string;
 };
 
+type RedditPost = {
+  id?: string;
+  title?: string;
+  selftext?: string;
+  author?: string;
+  permalink?: string;
+  url?: string;
+  created_utc?: number;
+  ups?: number;
+  is_video?: boolean;
+  domain?: string;
+  media?: { reddit_video?: { duration?: number } };
+};
+
+type SearxResult = {
+  title?: string;
+  url?: string;
+  content?: string;
+  engine?: string;
+  publishedDate?: string;
+};
+
+type GoogleSearchItem = {
+  title?: string;
+  link?: string;
+  snippet?: string;
+  displayLink?: string;
+};
+
 const restrictedProviders: ProviderReport[] = [
   {
     platform: "TikTok",
@@ -67,6 +101,30 @@ const restrictedProviders: ProviderReport[] = [
     candidates: 0,
     message:
       "Instagram does not expose a general public Reels search API for cross-account matching.",
+  },
+  {
+    platform: "Facebook",
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message:
+      "Facebook discovery requires Meta-approved account or Rights Manager access; public web pages can still surface through the transcript agent.",
+  },
+  {
+    platform: "Dailymotion",
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message:
+      "Dailymotion API v2 manages authenticated account content rather than a global transcript-search catalog.",
+  },
+  {
+    platform: "Twitch",
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message:
+      "Twitch Helix searches channels, not spoken content inside all VODs; indexed public pages are handled by the transcript agent.",
   },
 ];
 
@@ -149,6 +207,49 @@ function displayDate(value?: string) {
   }).format(date);
 }
 
+function displayUnixDate(value?: number) {
+  return value ? displayDate(new Date(value * 1_000).toISOString()) : "Date unavailable";
+}
+
+function platformForCandidate(value: string): Platform | null {
+  try {
+    const host = new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+    if (host === "youtu.be" || host.endsWith("youtube.com")) return "YouTube";
+    if (host.endsWith("tiktok.com")) return "TikTok";
+    if (host.endsWith("instagram.com")) return "Instagram";
+    if (host.endsWith("facebook.com") || host === "fb.watch") return "Facebook";
+    if (host.endsWith("vimeo.com")) return "Vimeo";
+    if (host === "x.com" || host.endsWith("twitter.com")) return "X";
+    if (host.endsWith("reddit.com") || host === "redd.it") return "Reddit";
+    if (host.endsWith("dailymotion.com") || host === "dai.ly") {
+      return "Dailymotion";
+    }
+    if (host.endsWith("twitch.tv")) return "Twitch";
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function toneForPlatform(
+  platform: Platform,
+): ScanMatch["tone"] {
+  if (platform === "YouTube" || platform === "Dailymotion") return "amber";
+  if (platform === "TikTok" || platform === "X") return "cyan";
+  if (platform === "Instagram" || platform === "Facebook") return "violet";
+  return "blue";
+}
+
+function cleanWebTitle(value?: string) {
+  return (value || "Untitled public video candidate")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function youtubeVideoId(value: string) {
   try {
     const url = new URL(value);
@@ -182,6 +283,8 @@ function failedReport(platform: Platform, message: string): ConnectorResult {
 async function searchYouTube(
   query: string,
   sourceUrl: string,
+  seeds: string[],
+  transcriptLed: boolean,
 ): Promise<ConnectorResult> {
   const apiKey = runtimeSecret("YOUTUBE_API_KEY");
   if (!apiKey) {
@@ -248,20 +351,29 @@ async function searchYouTube(
         views: detail?.statistics?.viewCount
           ? Number(detail.statistics.viewCount)
           : null,
-        confidence: titleScore(query, title),
+        confidence: transcriptLed
+          ? textSimilarity(
+              seeds,
+              `${title} ${item.snippet?.description || ""}`,
+            )
+          : titleScore(query, title),
         uploader: item.snippet?.channelTitle || "Unknown channel",
         duration: formatDuration(
           parseIsoDuration(detail?.contentDetails?.duration),
         ),
         published: displayDate(item.snippet?.publishedAt),
-        signals: ["Title overlap", "YouTube keyword discovery"],
+        signals: transcriptLed
+          ? ["Transcript phrase overlap", "YouTube keyword discovery"]
+          : ["Title overlap", "YouTube keyword discovery"],
         transformations: [],
         visualSimilarity: null,
         audioSimilarity: null,
         temporalSimilarity: null,
         matchedDuration: null,
         tone: "amber",
-        verification: "metadata-candidate",
+        verification: transcriptLed
+          ? "transcript-candidate"
+          : "metadata-candidate",
       };
     });
 
@@ -283,7 +395,11 @@ async function searchYouTube(
   }
 }
 
-async function searchVimeo(query: string): Promise<ConnectorResult> {
+async function searchVimeo(
+  query: string,
+  seeds: string[],
+  transcriptLed: boolean,
+): Promise<ConnectorResult> {
   const accessToken = runtimeSecret("VIMEO_ACCESS_TOKEN");
   if (!accessToken) {
     return {
@@ -327,18 +443,24 @@ async function searchVimeo(query: string): Promise<ConnectorResult> {
         platform: "Vimeo",
         views:
           typeof video.stats?.plays === "number" ? video.stats.plays : null,
-        confidence: titleScore(query, title),
+        confidence: transcriptLed
+          ? textSimilarity(seeds, title)
+          : titleScore(query, title),
         uploader: video.user?.name || "Unknown creator",
         duration: formatDuration(video.duration),
         published: displayDate(video.created_time),
-        signals: ["Title overlap", "Vimeo public search"],
+        signals: transcriptLed
+          ? ["Transcript phrase overlap", "Vimeo public search"]
+          : ["Title overlap", "Vimeo public search"],
         transformations: [],
         visualSimilarity: null,
         audioSimilarity: null,
         temporalSimilarity: null,
         matchedDuration: null,
         tone: "blue",
-        verification: "metadata-candidate",
+        verification: transcriptLed
+          ? "transcript-candidate"
+          : "metadata-candidate",
       };
     });
 
@@ -360,7 +482,11 @@ async function searchVimeo(query: string): Promise<ConnectorResult> {
   }
 }
 
-async function searchX(query: string): Promise<ConnectorResult> {
+async function searchX(
+  query: string,
+  seeds: string[],
+  transcriptLed: boolean,
+): Promise<ConnectorResult> {
   const bearerToken = runtimeSecret("X_BEARER_TOKEN");
   if (!bearerToken) {
     return {
@@ -408,18 +534,24 @@ async function searchX(query: string): Promise<ConnectorResult> {
           : "https://x.com",
         platform: "X",
         views: post.public_metrics?.impression_count ?? null,
-        confidence: titleScore(query, title),
+        confidence: transcriptLed
+          ? textSimilarity(seeds, title)
+          : titleScore(query, title),
         uploader: username ? `@${username}` : author?.name || "Unknown account",
         duration: "—",
         published: displayDate(post.created_at),
-        signals: ["Text overlap", "Recent X video post"],
+        signals: transcriptLed
+          ? ["Transcript phrase overlap", "Recent X video post"]
+          : ["Text overlap", "Recent X video post"],
         transformations: [],
         visualSimilarity: null,
         audioSimilarity: null,
         temporalSimilarity: null,
         matchedDuration: null,
         tone: "blue",
-        verification: "metadata-candidate",
+        verification: transcriptLed
+          ? "transcript-candidate"
+          : "metadata-candidate",
       };
     });
 
@@ -441,44 +573,336 @@ async function searchX(query: string): Promise<ConnectorResult> {
   }
 }
 
-export function initialProviderReports(): ProviderReport[] {
-  return [
-    {
-      platform: "YouTube",
-      status: "queued",
-      searched: false,
-      candidates: 0,
-      message: "Waiting to start.",
+async function redditAccessToken(
+  clientId: string,
+  clientSecret: string,
+  userAgent: string,
+) {
+  const response = await fetch("https://www.reddit.com/api/v1/access_token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": userAgent,
     },
+    body: new URLSearchParams({ grant_type: "client_credentials" }),
+  });
+  if (!response.ok) {
+    throw new Error(`Reddit authorization failed with ${response.status}.`);
+  }
+  const payload = (await response.json()) as { access_token?: string };
+  if (!payload.access_token) throw new Error("Reddit did not return an access token.");
+  return payload.access_token;
+}
+
+async function searchReddit(
+  query: string,
+  seeds: string[],
+  transcriptLed: boolean,
+): Promise<ConnectorResult> {
+  const clientId = runtimeSecret("REDDIT_CLIENT_ID");
+  const clientSecret = runtimeSecret("REDDIT_CLIENT_SECRET");
+  const userAgent =
+    runtimeSecret("REDDIT_USER_AGENT") || "web:relay-rights-monitor:1.0";
+  if (!clientId || !clientSecret) {
+    return {
+      report: {
+        platform: "Reddit",
+        status: "credentials_required",
+        searched: false,
+        candidates: 0,
+        message:
+          "Add REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET to search public Reddit video posts.",
+      },
+      matches: [],
+    };
+  }
+
+  try {
+    const token = await redditAccessToken(clientId, clientSecret, userAgent);
+    const searchUrl = new URL("https://oauth.reddit.com/search");
+    searchUrl.search = new URLSearchParams({
+      q: transcriptLed ? `"${query.replaceAll('"', "").slice(0, 180)}"` : query,
+      sort: "relevance",
+      type: "link",
+      limit: "15",
+      raw_json: "1",
+    }).toString();
+    const payload = await fetchJson<{
+      data?: { children?: Array<{ data?: RedditPost }> };
+    }>(searchUrl.toString(), {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "User-Agent": userAgent,
+      },
+    });
+    const posts = (payload.data?.children ?? [])
+      .map((child) => child.data)
+      .filter((post): post is RedditPost => Boolean(post))
+      .filter(
+        (post) =>
+          post.is_video ||
+          Boolean(post.url && platformForCandidate(post.url)) ||
+          post.domain === "v.redd.it",
+      );
+    const matches = posts.slice(0, 10).map((post, index): ScanMatch => {
+      const title = post.title || "Reddit video candidate";
+      const publicUrl = post.permalink
+        ? `https://www.reddit.com${post.permalink}`
+        : post.url || "https://www.reddit.com";
+      return {
+        id: `reddit-${post.id || index}`,
+        title,
+        url: publicUrl,
+        platform: "Reddit",
+        views: null,
+        confidence: transcriptLed
+          ? textSimilarity(seeds, `${title} ${post.selftext || ""}`)
+          : titleScore(query, title),
+        uploader: post.author ? `u/${post.author}` : "Unknown Reddit user",
+        duration: formatDuration(post.media?.reddit_video?.duration),
+        published: displayUnixDate(post.created_utc),
+        signals: transcriptLed
+          ? ["Transcript phrase overlap", "Reddit OAuth search"]
+          : ["Title overlap", "Reddit OAuth search"],
+        transformations: [],
+        visualSimilarity: null,
+        audioSimilarity: null,
+        temporalSimilarity: null,
+        matchedDuration: null,
+        tone: "blue",
+        verification: transcriptLed
+          ? "transcript-candidate"
+          : "metadata-candidate",
+      };
+    });
+
+    return {
+      report: {
+        platform: "Reddit",
+        status: "completed",
+        searched: true,
+        candidates: matches.length,
+        message: `Reddit search returned ${matches.length} public video candidates.`,
+      },
+      matches,
+    };
+  } catch (error) {
+    return failedReport(
+      "Reddit",
+      error instanceof Error ? error.message : "Reddit search failed.",
+    );
+  }
+}
+
+async function searchWebIndex(
+  query: string,
+  seeds: string[],
+  transcriptLed: boolean,
+): Promise<ConnectorResult> {
+  const searxngUrl = runtimeSecret("SEARXNG_URL");
+  const googleKey = runtimeSecret("GOOGLE_CSE_API_KEY");
+  const googleCx = runtimeSecret("GOOGLE_CSE_ID");
+  if (!searxngUrl && !(googleKey && googleCx)) {
+    return {
+      report: {
+        platform: "Web",
+        status: "credentials_required",
+        searched: false,
+        candidates: 0,
+        message:
+          "Run the included SearXNG service or add existing Google CSE credentials for cross-platform transcript discovery.",
+      },
+      matches: [],
+    };
+  }
+
+  const domains = [
+    "youtube.com",
+    "tiktok.com",
+    "instagram.com",
+    "facebook.com",
+    "vimeo.com",
+    "x.com",
+    "twitter.com",
+    "reddit.com",
+    "dailymotion.com",
+    "twitch.tv",
+  ];
+  const cleanQuery = query.replaceAll('"', "").slice(0, 180);
+  const domainQuery = domains.map((domain) => `site:${domain}`).join(" OR ");
+  const searchQuery = transcriptLed
+    ? `"${cleanQuery}" (${domainQuery})`
+    : `${cleanQuery} (${domainQuery})`;
+
+  try {
+    let sourceName = "SearXNG";
+    let rawResults: Array<{
+      title?: string;
+      url?: string;
+      content?: string;
+      source?: string;
+      published?: string;
+    }> = [];
+
+    if (searxngUrl) {
+      const endpoint = new URL("/search", searxngUrl);
+      endpoint.search = new URLSearchParams({
+        q: searchQuery,
+        format: "json",
+        categories: "general",
+        safesearch: "1",
+        language: "en",
+      }).toString();
+      const token = runtimeSecret("SEARXNG_TOKEN");
+      const payload = await fetchJson<{ results?: SearxResult[] }>(
+        endpoint.toString(),
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        },
+        12_000,
+      );
+      rawResults = (payload.results ?? []).map((result) => ({
+        title: result.title,
+        url: result.url,
+        content: result.content,
+        source: result.engine,
+        published: result.publishedDate,
+      }));
+    } else {
+      sourceName = "Google Programmable Search";
+      const endpoint = new URL(
+        "https://customsearch.googleapis.com/customsearch/v1",
+      );
+      endpoint.search = new URLSearchParams({
+        key: googleKey as string,
+        cx: googleCx as string,
+        q: searchQuery,
+        num: "10",
+        safe: "active",
+      }).toString();
+      const payload = await fetchJson<{ items?: GoogleSearchItem[] }>(
+        endpoint.toString(),
+      );
+      rawResults = (payload.items ?? []).map((result) => ({
+        title: result.title,
+        url: result.link,
+        content: result.snippet,
+        source: result.displayLink,
+      }));
+    }
+
+    const seen = new Set<string>();
+    const matches: ScanMatch[] = [];
+    for (const result of rawResults) {
+      if (!result.url || seen.has(result.url)) continue;
+      const platform = platformForCandidate(result.url);
+      if (!platform) continue;
+      seen.add(result.url);
+      const title = cleanWebTitle(result.title);
+      matches.push({
+        id: `web-${platform.toLowerCase()}-${matches.length + 1}`,
+        title,
+        url: result.url,
+        platform,
+        views: null,
+        confidence: transcriptLed
+          ? textSimilarity(seeds, `${title} ${result.content || ""}`)
+          : titleScore(query, `${title} ${result.content || ""}`),
+        uploader: result.source || new URL(result.url).hostname,
+        duration: "—",
+        published: displayDate(result.published),
+        signals: transcriptLed
+          ? ["Transcript phrase overlap", `${sourceName} discovery`]
+          : ["Web text overlap", `${sourceName} discovery`],
+        transformations: [],
+        visualSimilarity: null,
+        audioSimilarity: null,
+        temporalSimilarity: null,
+        matchedDuration: null,
+        tone: toneForPlatform(platform),
+        verification: transcriptLed
+          ? "transcript-candidate"
+          : "metadata-candidate",
+      });
+      if (matches.length === 12) break;
+    }
+
+    return {
+      report: {
+        platform: "Web",
+        status: "completed",
+        searched: true,
+        candidates: matches.length,
+        message: `${sourceName} searched indexed public video pages and returned ${matches.length} candidates.`,
+      },
+      matches,
+    };
+  } catch (error) {
+    return failedReport(
+      "Web",
+      error instanceof Error
+        ? error.message
+        : "Cross-platform web discovery failed.",
+    );
+  }
+}
+
+export function initialProviderReports(): ProviderReport[] {
+  const queued = (platform: Platform): ProviderReport => ({
+    platform,
+    status: "queued",
+    searched: false,
+    candidates: 0,
+    message: "Waiting to start.",
+  });
+  return [
+    queued("YouTube"),
     restrictedProviders[0],
     restrictedProviders[1],
-    {
-      platform: "Vimeo",
-      status: "queued",
-      searched: false,
-      candidates: 0,
-      message: "Waiting to start.",
-    },
-    {
-      platform: "X",
-      status: "queued",
-      searched: false,
-      candidates: 0,
-      message: "Waiting to start.",
-    },
+    restrictedProviders[2],
+    queued("Vimeo"),
+    queued("X"),
+    queued("Reddit"),
+    restrictedProviders[3],
+    restrictedProviders[4],
+    queued("Web"),
   ];
 }
 
-export async function runProviderDiscovery(
-  query: string,
-  sourceUrl: string,
-) {
-  const [youtube, vimeo, x] = await Promise.all([
-    searchYouTube(query, sourceUrl),
-    searchVimeo(query),
-    searchX(query),
+export async function runProviderDiscovery({
+  title,
+  phrases,
+  sourceUrl,
+}: {
+  title: string;
+  phrases: string[];
+  sourceUrl: string;
+}) {
+  const seeds = discoverySeeds(title, phrases);
+  const transcriptLed = phrases.length > 0;
+  const query = phrases[0] || title;
+  const [youtube, vimeo, x, reddit, web] = await Promise.all([
+    searchYouTube(query, sourceUrl, seeds, transcriptLed),
+    searchVimeo(query, seeds, transcriptLed),
+    searchX(query, seeds, transcriptLed),
+    searchReddit(query, seeds, transcriptLed),
+    searchWebIndex(query, seeds, transcriptLed),
   ]);
-  const matches = [...youtube.matches, ...vimeo.matches, ...x.matches].sort(
+  const matchByUrl = new Map<string, ScanMatch>();
+  for (const match of [
+    ...youtube.matches,
+    ...vimeo.matches,
+    ...x.matches,
+    ...reddit.matches,
+    ...web.matches,
+  ]) {
+    const existing = matchByUrl.get(match.url);
+    if (!existing || match.confidence > existing.confidence) {
+      matchByUrl.set(match.url, match);
+    }
+  }
+  const matches = [...matchByUrl.values()].sort(
     (left, right) => right.confidence - left.confidence,
   );
 
@@ -487,8 +911,13 @@ export async function runProviderDiscovery(
       youtube.report,
       restrictedProviders[0],
       restrictedProviders[1],
+      restrictedProviders[2],
       vimeo.report,
       x.report,
+      reddit.report,
+      restrictedProviders[3],
+      restrictedProviders[4],
+      web.report,
     ],
     matches,
   };

@@ -31,10 +31,16 @@ async function parseSubmission(request: Request, scanId: string) {
     if (!(file instanceof File)) {
       throw new Error("A video file is required.");
     }
+    const transcriptValue = form.get("transcriptHint");
+    const transcriptHint =
+      typeof transcriptValue === "string" ? transcriptValue.trim() : "";
+    if (transcriptHint.length > 20_000) {
+      throw new Error("Transcript hints are limited to 20,000 characters.");
+    }
     return {
       source: file.name,
       sourceType: "upload" as const,
-      sourceMetadata: await metadataForUpload(file, scanId),
+      sourceMetadata: await metadataForUpload(file, scanId, transcriptHint),
     };
   }
 
@@ -54,17 +60,22 @@ async function parseSubmission(request: Request, scanId: string) {
   }
 
   const source = typeof body.source === "string" ? body.source.trim() : "";
+  const transcriptHint =
+    typeof body.transcriptHint === "string" ? body.transcriptHint.trim() : "";
   if (!source) {
     throw new Error("A source video URL is required.");
   }
   if (!isSourceType(body.sourceType) || body.sourceType !== "link") {
     throw new Error("JSON scan requests must use sourceType link.");
   }
+  if (transcriptHint.length > 20_000) {
+    throw new Error("Transcript hints are limited to 20,000 characters.");
+  }
 
   return {
     source,
     sourceType: "link" as const,
-    sourceMetadata: await metadataForLink(source),
+    sourceMetadata: await metadataForLink(source, transcriptHint),
   };
 }
 
