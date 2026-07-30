@@ -6,10 +6,25 @@ import {
   useEffect,
   useState,
 } from "react";
+import { useUser } from "@auth0/nextjs-auth0";
 import type {
   ScanErrorResponse,
   ScanResponse,
 } from "../lib/scan-contract";
+
+function AuthNav() {
+  const { user, isLoading } = useUser();
+  if (isLoading) return null;
+  return user ? (
+    <a className="nav-link" href="/auth/logout">
+      Log out <span aria-hidden="true">↗</span>
+    </a>
+  ) : (
+    <a className="nav-link" href="/auth/login">
+      Log in <span aria-hidden="true">↗</span>
+    </a>
+  );
+}
 
 type Mode = "link" | "upload";
 type Stage = "idle" | "scanning";
@@ -557,6 +572,7 @@ export default function Home() {
         <a className="nav-link" href="/history">
           Case history <span aria-hidden="true">↗</span>
         </a>
+        <AuthNav />
       </nav>
 
       <section className="hero" id="top">
