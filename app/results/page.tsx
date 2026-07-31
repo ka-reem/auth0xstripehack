@@ -13,8 +13,13 @@ const platformMarks: Record<Platform, string> = {
   YouTube: "YT",
   TikTok: "TT",
   Instagram: "IG",
+  Facebook: "FB",
   Vimeo: "VI",
   X: "X",
+  Reddit: "RD",
+  Dailymotion: "DM",
+  Twitch: "TW",
+  Web: "WB",
 };
 
 const reviewLabels: Record<ReviewStatus, string> = {
@@ -61,34 +66,8 @@ export default function ResultsPage() {
   const [loadError, setLoadError] = useState("");
   const [reviewSaving, setReviewSaving] = useState("");
   const [copied, setCopied] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
-
-  // Paywall: unlocked via ?unlocked=1 (Stripe redirect) or a prior purchase.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const paidNow = params.get("unlocked") === "1";
-    let stored = false;
-    try {
-      stored = window.localStorage.getItem("clippolice_unlocked") === "1";
-      if (paidNow) window.localStorage.setItem("clippolice_unlocked", "1");
-    } catch {
-      // ignore storage errors
-    }
-    setUnlocked(paidNow || stored);
-  }, []);
-
-  const startUnlock = () => {
-    try {
-      window.localStorage.setItem(
-        "clippolice_return_to",
-        window.location.pathname + window.location.search,
-      );
-    } catch {
-      // ignore storage errors
-    }
-    window.location.href =
-      "https://buy.stripe.com/test_fZu00i52a4Wjf1p5TE2cg00";
-  };
+  const [checkoutStarting, setCheckoutStarting] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -241,6 +220,39 @@ export default function ResultsPage() {
 
   const isReady = report?.status === "completed";
   const isDemo = report?.dataMode === "controlled-demo";
+  const candidateCount =
+    report?.payment?.candidateCount ?? report?.matches.length ?? 0;
+  const reportLocked = Boolean(
+    report?.payment?.enabled && !report.payment.unlocked && candidateCount,
+  );
+
+  async function startUnlock() {
+    if (!report || checkoutStarting) return;
+    setCheckoutStarting(true);
+    setCheckoutError("");
+    try {
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scanId: report.scanId }),
+      });
+      const payload = (await response.json()) as {
+        url?: string;
+        error?: string;
+      };
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error || "Stripe Checkout could not be started.");
+      }
+      window.location.assign(payload.url);
+    } catch (error) {
+      setCheckoutError(
+        error instanceof Error
+          ? error.message
+          : "Stripe Checkout could not be started.",
+      );
+      setCheckoutStarting(false);
+    }
+  }
 
   return (
     <main className="results-page dashboard-ready" onPointerMove={moveCursor}>
@@ -299,22 +311,40 @@ export default function ResultsPage() {
                 PERSISTENT SCAN REPORT
               </div>
               <h1>
-                {report.matches.length
-                  ? "Candidate reuploads found"
-                  : "Provider scan complete"}
+                {candidateCount
+                  ? "Candidate post links found"
+                  : "No exact post links found"}
               </h1>
               <p>
-                Search query <span>{report.query}</span>
+                Discovery plan{" "}
+                <span>
+                  {report.sourceMetadata.discoveryQueries.length || 1} query
+                  {report.sourceMetadata.discoveryQueries.length === 1
+                    ? ""
+                    : " variants"}
+                </span>
               </p>
             </div>
             <div className="report-actions">
-              <button type="button" onClick={exportEvidence}>
+              <button
+                type="button"
+                onClick={exportEvidence}
+                disabled={reportLocked}
+              >
                 Export evidence
               </button>
-              <button type="button" onClick={copyReportLink}>
+              <button
+                type="button"
+                onClick={copyReportLink}
+                disabled={reportLocked}
+              >
                 {copied ? "Link copied" : "Copy report link"}
               </button>
-              <button type="button" onClick={() => window.print()}>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                disabled={reportLocked}
+              >
                 Print report
               </button>
             </div>
@@ -331,12 +361,81 @@ export default function ResultsPage() {
             <p>{report.notice}</p>
           </div>
 
+          <div className="source-intelligence">
+            <div>
+              <span>SOURCE CONTEXT</span>
+              <strong>{report.sourceMetadata.title}</strong>
+            </div>
+            <p>
+              {[
+                report.sourceMetadata.platform,
+                report.sourceMetadata.author,
+                report.sourceMetadata.sourceDuration
+                  ? `${Math.round(report.sourceMetadata.sourceDuration)} seconds`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            {report.sourceMetadata.description && (
+              <blockquote>{report.sourceMetadata.description}</blockquote>
+            )}
+            {report.sourceType === "link" && (
+              <a
+                className="source-public-link"
+                href={report.source}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Original source: {report.source}
+              </a>
+            )}
+          </div>
+
+          <div
+            className={`transcript-intelligence transcript-${report.sourceMetadata.transcriptStatus}`}
+          >
+            <div>
+              <span>TRANSCRIPT DISCOVERY</span>
+              <strong>
+                {report.sourceMetadata.transcriptStatus.replaceAll("_", " ")}
+              </strong>
+            </div>
+            <p>{report.sourceMetadata.transcriptMessage}</p>
+            {report.sourceMetadata.transcriptExcerpt && (
+              <blockquote>
+                “{report.sourceMetadata.transcriptExcerpt}”
+              </blockquote>
+            )}
+            {report.sourceMetadata.discoveryPhrases.length > 0 && (
+              <div className="discovery-phrases">
+                {report.sourceMetadata.discoveryPhrases.map((phrase) => (
+                  <span key={phrase}>{phrase}</span>
+                ))}
+              </div>
+            )}
+            {report.sourceMetadata.discoveryQueries.length > 0 && (
+              <div className="query-plan">
+                <small>QUERY VARIANTS ATTEMPTED</small>
+                <div>
+                  {report.sourceMetadata.discoveryQueries
+                    .slice(0, 6)
+                    .map((query) => (
+                      <span key={query}>{query}</span>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="rights-summary">
             <article>
               <span>CANDIDATE POSTS</span>
-              <strong>{report.matches.length.toString().padStart(2, "0")}</strong>
+              <strong>{candidateCount.toString().padStart(2, "0")}</strong>
               <small>
-                {isDemo ? "controlled benchmark set" : "returned by official APIs"}
+                {isDemo
+                  ? "controlled benchmark set"
+                  : "retained discovery leads"}
               </small>
             </article>
             <article>
@@ -350,7 +449,9 @@ export default function ResultsPage() {
               <span>{isDemo ? "DEMO AGENTS" : "LIVE CONNECTORS"}</span>
               <strong>{metrics.liveConnectors.toString().padStart(2, "0")}</strong>
               <small>
-                {isDemo ? "controlled platform nodes" : "of five platform agents"}
+                {isDemo
+                  ? "controlled platform nodes"
+                  : "configured discovery agents"}
               </small>
             </article>
             <article>
@@ -404,12 +505,13 @@ export default function ResultsPage() {
             </p>
           </div>
 
-          {report.matches.length && !unlocked ? (
+          {reportLocked ? (
             <div
+              className="secure-unlock"
               style={{
                 border: "1px solid rgba(255,255,255,0.15)",
                 borderRadius: 16,
-                padding: "20px 22px",
+                padding: "30px 32px",
                 margin: "4px 0 20px",
                 background: "rgba(255,255,255,0.04)",
                 display: "flex",
@@ -420,28 +522,35 @@ export default function ResultsPage() {
               }}
             >
               <div>
-                <strong style={{ fontSize: 16 }}>
-                  Unlock all {report.matches.length} results
+                <strong style={{ fontSize: 24 }}>
+                  Unlock all {candidateCount} results
                 </strong>
-                <p style={{ margin: "4px 0 0", opacity: 0.7, fontSize: 13 }}>
-                  See every reposter, their reach, and takedown drafts.
+                <p style={{ margin: "7px 0 0", opacity: 0.7, fontSize: 16 }}>
+                  Stripe verifies the payment before Relay releases evidence.
                 </p>
+                {checkoutError && (
+                  <p role="alert" style={{ margin: "9px 0 0", color: "#ffb4a4" }}>
+                    {checkoutError}
+                  </p>
+                )}
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  onClick={startUnlock}
+                  onClick={() => void startUnlock()}
+                  disabled={checkoutStarting}
                   style={{
-                    padding: "11px 20px",
+                    padding: "14px 24px",
                     borderRadius: 10,
                     border: "none",
                     background: "#fff",
                     color: "#000",
                     fontWeight: 700,
-                    cursor: "pointer",
+                    fontSize: 16,
+                    cursor: checkoutStarting ? "wait" : "pointer",
                   }}
                 >
-                  Unlock full results — $5
+                  {checkoutStarting ? "Opening secure checkout…" : "Unlock results — $5"}
                 </button>
                 <button
                   type="button"
@@ -460,21 +569,8 @@ export default function ResultsPage() {
                 </button>
               </div>
             </div>
-          ) : null}
-
-          {report.matches.length ? (
-            <div
-              className="result-grid"
-              style={
-                unlocked
-                  ? undefined
-                  : {
-                      filter: "blur(7px)",
-                      pointerEvents: "none",
-                      userSelect: "none",
-                    }
-              }
-            >
+          ) : report.matches.length ? (
+            <div className="result-grid">
               {report.matches.map((result, index) => {
                 const reviewDecision = report.reviews[result.id];
 
@@ -502,7 +598,9 @@ export default function ResultsPage() {
                           {result.confidence}%{" "}
                           {result.verification === "controlled-match"
                             ? "match score"
-                            : "discovery score"}
+                            : result.verification === "visual-web-candidate"
+                              ? "visual match score"
+                              : "discovery score"}
                         </b>
                       </div>
                       <h3>{result.title}</h3>
@@ -598,11 +696,14 @@ export default function ResultsPage() {
                       </form>
                       {result.url ? (
                         <a
+                          className="exact-post-link"
                           href={result.url}
                           target="_blank"
                           rel="noreferrer"
                         >
-                          Open public post <span aria-hidden="true">↗</span>
+                          <small>EXACT CANDIDATE URL</small>
+                          <span>{result.url}</span>
+                          <b aria-hidden="true">↗</b>
                         </a>
                       ) : (
                         <span className="controlled-specimen">
@@ -616,12 +717,13 @@ export default function ResultsPage() {
             </div>
           ) : (
             <div className="results-empty-state">
-              <span>NO FABRICATED MATCHES</span>
-              <h2>No candidates were returned.</h2>
+              <span>CURRENT COVERAGE EXHAUSTED</span>
+              <h2>No exact post URLs were found.</h2>
               <p>
-                Add credentials for YouTube, Vimeo, or X to run their official
-                discovery APIs. TikTok and Instagram require different,
-                account-authorized access models.
+                This does not prove that no repost exists. Keyword and
+                transcript indexes cannot identify caption-changed copies.
+                Configure Google Vision Web Detection to extract source frames
+                and return pages containing full or partial visual matches.
               </p>
             </div>
           )}

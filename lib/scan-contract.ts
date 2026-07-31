@@ -4,8 +4,13 @@ export type Platform =
   | "YouTube"
   | "TikTok"
   | "Instagram"
+  | "Facebook"
   | "Vimeo"
-  | "X";
+  | "X"
+  | "Reddit"
+  | "Dailymotion"
+  | "Twitch"
+  | "Web";
 
 export type ProviderStatus =
   | "queued"
@@ -19,15 +24,33 @@ export type ScanRequest = {
   source: string;
   sourceType: Exclude<ScanSourceType, "demo">;
   demo?: boolean;
+  transcriptHint?: string;
 };
+
+export type TranscriptStatus =
+  | "not_requested"
+  | "provided"
+  | "ready"
+  | "unavailable"
+  | "failed";
 
 export type SourceMetadata = {
   title: string;
   platform: Platform | "Direct upload" | "Web";
   author: string | null;
+  description: string | null;
   thumbnailUrl: string | null;
+  canonicalUrl: string | null;
+  sourceDuration: number | null;
   integrityHash: string | null;
   objectKey: string | null;
+  transcriptStatus: TranscriptStatus;
+  transcriptLanguage: string | null;
+  transcriptExcerpt: string | null;
+  discoveryPhrases: string[];
+  discoveryQueries: string[];
+  transcriptProvider: "manual" | "faster-whisper" | null;
+  transcriptMessage: string;
 };
 
 export type ProviderReport = {
@@ -55,7 +78,11 @@ export type ScanMatch = {
   temporalSimilarity: number | null;
   matchedDuration: string | null;
   tone: "amber" | "cyan" | "violet" | "blue";
-  verification: "metadata-candidate" | "controlled-match";
+  verification:
+    | "metadata-candidate"
+    | "transcript-candidate"
+    | "visual-web-candidate"
+    | "controlled-match";
 };
 
 export type ReviewStatus =
@@ -86,6 +113,11 @@ export type ScanResponse = {
   providers: ProviderReport[];
   matches: ScanMatch[];
   reviews: Record<string, ReviewDecision>;
+  payment?: {
+    enabled: boolean;
+    unlocked: boolean;
+    candidateCount: number;
+  };
   error: string | null;
 };
 

@@ -11,6 +11,15 @@ import type {
   SourceMetadata,
 } from "./scan-contract";
 import { updateScan, uploadBucket } from "./scan-store";
+import {
+  buildDiscoveryQueries,
+  emptyTranscriptFields,
+  transcriptFields,
+} from "./transcript-discovery";
+import {
+  transcribeLinkedSource,
+  transcribeStoredSource,
+} from "./transcription-client";
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
@@ -222,7 +231,10 @@ async function fetchOEmbed(url: URL, platform: Platform | "Web") {
   }
 }
 
-export async function metadataForLink(source: string): Promise<SourceMetadata> {
+export async function metadataForLink(
+  source: string,
+  transcriptHint = "",
+): Promise<SourceMetadata> {
   let url: URL;
   try {
     url = new URL(source);
@@ -239,13 +251,20 @@ export async function metadataForLink(source: string): Promise<SourceMetadata> {
 
   const platform = platformForUrl(url);
   const embed = await fetchOEmbed(url, platform);
+  const transcript = transcriptHint.trim()
+    ? transcriptFields(transcriptHint, "manual")
+    : emptyTranscriptFields();
   return {
     title: embed?.title?.trim() || fallbackTitle(url),
     platform,
     author: embed?.author_name?.trim() || null,
+    description: null,
     thumbnailUrl: embed?.thumbnail_url || null,
+    canonicalUrl: url.toString(),
+    sourceDuration: null,
     integrityHash: null,
     objectKey: null,
+    ...transcript,
   };
 }
 
@@ -264,7 +283,11 @@ async function sha256(file: File) {
     .join("");
 }
 
-export async function metadataForUpload(file: File, scanId: string) {
+export async function metadataForUpload(
+  file: File,
+  scanId: string,
+  transcriptHint = "",
+) {
   if (!file.type.startsWith("video/")) {
     throw new Error("The uploaded file must be a video.");
   }
@@ -301,9 +324,15 @@ export async function metadataForUpload(file: File, scanId: string) {
     title,
     platform: "Direct upload",
     author: null,
+    description: null,
     thumbnailUrl: null,
+    canonicalUrl: null,
+    sourceDuration: null,
     integrityHash,
     objectKey,
+    ...(transcriptHint.trim()
+      ? transcriptFields(transcriptHint, "manual")
+      : emptyTranscriptFields()),
   };
   return metadata;
 }
@@ -313,10 +342,19 @@ export function metadataForDemo(): SourceMetadata {
     title: "Relay launch film — controlled benchmark",
     platform: "Direct upload",
     author: "Relay benchmark suite",
+    description:
+      "A controlled Relay launch-film specimen used to validate the evidence workflow.",
     thumbnailUrl: null,
+    canonicalUrl: null,
+    sourceDuration: 48,
     integrityHash:
       "4f8c2f6c85ae589ad86a724b48d8d9dc7244c4c64b2da8c1fa2b7e832cd0f61a",
     objectKey: null,
+    ...transcriptFields(
+      "This launch film follows a signal leaving the original frame and traveling across every public screen. The final reveal asks creators to protect the work without losing sight of how culture moves.",
+      "manual",
+      "en",
+    ),
   };
 }
 
@@ -362,39 +400,78 @@ export async function processScan(report: ScanResponse, ownerKey: string) {
         ? {
             ...provider,
             status: "searching",
-            message: "Searching the official provider API.",
+            message: "Searching the configured provider discovery channel.",
           }
         : provider,
     ),
-    notice: "Official provider connectors are running in parallel.",
+    notice: "Provider and transcript discovery agents are running in parallel.",
   };
   await updateScan(running, ownerKey);
 
   try {
+    let active = running;
+    if (running.sourceType === "upload" || running.sourceType === "link") {
+      const processedMetadata =
+        running.sourceType === "upload"
+          ? await transcribeStoredSource(running.sourceMetadata)
+          : await transcribeLinkedSource(running.sourceMetadata, running.source);
+      const sourceMetadata = {
+        ...processedMetadata,
+        discoveryQueries: buildDiscoveryQueries({
+          title: processedMetadata.title,
+          description: processedMetadata.description,
+          author: processedMetadata.author,
+          phrases: processedMetadata.discoveryPhrases,
+          transcript: processedMetadata.transcriptExcerpt,
+        }),
+      };
+      active = {
+        ...running,
+        sourceMetadata,
+        query:
+          sourceMetadata.discoveryQueries[0] ||
+          sourceMetadata.discoveryPhrases[0] ||
+          sourceMetadata.title,
+        progress: 58,
+        updatedAt: new Date().toISOString(),
+        notice:
+          sourceMetadata.transcriptStatus === "ready"
+            ? "The source was transcribed locally. Distinctive spoken phrases are driving discovery."
+            : sourceMetadata.transcriptMessage,
+      };
+      await updateScan(active, ownerKey);
+    }
+
     const discovery =
-      running.sourceType === "demo"
+      active.sourceType === "demo"
         ? { providers: demoProviders, matches: demoMatches }
-        : await runProviderDiscovery(
-            running.query,
-            running.sourceType === "link" ? running.source : "",
-          );
+        : await runProviderDiscovery({
+            title: active.sourceMetadata.title,
+            description: active.sourceMetadata.description,
+            author: active.sourceMetadata.author,
+            phrases: active.sourceMetadata.discoveryPhrases,
+            queries: active.sourceMetadata.discoveryQueries,
+            sourceUrl: active.sourceType === "link" ? active.source : "",
+          });
     const searchedProviders = discovery.providers.filter(
       (provider) => provider.searched,
     ).length;
     const completed: ScanResponse = {
-      ...running,
+      ...active,
       status: "completed",
       progress: 100,
       updatedAt: new Date().toISOString(),
       providers: discovery.providers,
       matches: discovery.matches,
       notice:
-        running.sourceType === "demo"
+        active.sourceType === "demo"
           ? "Controlled benchmark complete. These six labeled specimens demonstrate the evidence workflow; they are not claims about live public posts."
           : searchedProviders > 0
-            ? `${searchedProviders} live provider connector${
-                searchedProviders === 1 ? "" : "s"
-              } ran. Results are metadata candidates and still require visual verification.`
+            ? discovery.matches.length
+              ? `${searchedProviders} discovery channels ran and returned ${discovery.matches.length} candidates for visual verification.`
+              : `The source was processed and ${searchedProviders} available discovery channel${
+                  searchedProviders === 1 ? "" : "s"
+                } found no indexed match. Public-index fallbacks were used where approved platform-wide API access was unavailable.`
             : "No live provider credentials are configured. The job completed without fabricating matches.",
       error: null,
     };

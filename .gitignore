@@ -13,6 +13,8 @@ out/
 dist/
 .wrangler/
 coverage/
+__pycache__/
+*.py[cod]
 
 # environment files
 

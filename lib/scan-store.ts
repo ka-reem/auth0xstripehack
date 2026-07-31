@@ -5,6 +5,7 @@ import type {
   ScanHistoryItem,
   ScanResponse,
 } from "./scan-contract";
+import { emptyTranscriptFields } from "./transcript-discovery";
 
 type StoredScan = {
   report: ScanResponse;
@@ -41,6 +42,20 @@ type RelayBindings = {
   YOUTUBE_API_KEY?: string;
   VIMEO_ACCESS_TOKEN?: string;
   X_BEARER_TOKEN?: string;
+  REDDIT_CLIENT_ID?: string;
+  REDDIT_CLIENT_SECRET?: string;
+  REDDIT_USER_AGENT?: string;
+  SEARXNG_URL?: string;
+  SEARXNG_TOKEN?: string;
+  SEARXNG_ENGINES?: string;
+  GOOGLE_CSE_API_KEY?: string;
+  GOOGLE_CSE_ID?: string;
+  GOOGLE_VISION_API_KEY?: string;
+  TRANSCRIPTION_WORKER_URL?: string;
+  TRANSCRIPTION_WORKER_TOKEN?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_API_KEY?: string;
+  APP_BASE_URL?: string;
 };
 
 const memoryScans = new Map<string, StoredScan>();
@@ -59,7 +74,24 @@ export function uploadBucket() {
 }
 
 export function runtimeSecret(
-  name: "YOUTUBE_API_KEY" | "VIMEO_ACCESS_TOKEN" | "X_BEARER_TOKEN",
+  name:
+    | "YOUTUBE_API_KEY"
+    | "VIMEO_ACCESS_TOKEN"
+    | "X_BEARER_TOKEN"
+    | "REDDIT_CLIENT_ID"
+    | "REDDIT_CLIENT_SECRET"
+    | "REDDIT_USER_AGENT"
+    | "SEARXNG_URL"
+    | "SEARXNG_TOKEN"
+    | "SEARXNG_ENGINES"
+    | "GOOGLE_CSE_API_KEY"
+    | "GOOGLE_CSE_ID"
+    | "GOOGLE_VISION_API_KEY"
+    | "TRANSCRIPTION_WORKER_URL"
+    | "TRANSCRIPTION_WORKER_TOKEN"
+    | "STRIPE_SECRET_KEY"
+    | "STRIPE_API_KEY"
+    | "APP_BASE_URL",
 ) {
   const bindingValue = bindings()[name];
   if (typeof bindingValue === "string" && bindingValue.trim()) {
@@ -140,6 +172,9 @@ function serialize(report: ScanResponse, ownerKey: string) {
 }
 
 function deserialize(row: ScanRow): StoredScan {
+  const storedMetadata = JSON.parse(
+    row.source_metadata,
+  ) as Partial<ScanResponse["sourceMetadata"]>;
   return {
     ownerKey: row.owner_key,
     report: {
@@ -152,9 +187,13 @@ function deserialize(row: ScanRow): StoredScan {
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
       dataMode: row.source_type === "demo" ? "controlled-demo" : "live",
-      sourceMetadata: JSON.parse(
-        row.source_metadata,
-      ) as ScanResponse["sourceMetadata"],
+      sourceMetadata: {
+        description: null,
+        canonicalUrl: null,
+        sourceDuration: null,
+        ...emptyTranscriptFields(),
+        ...storedMetadata,
+      } as ScanResponse["sourceMetadata"],
       providers: JSON.parse(row.providers) as ScanResponse["providers"],
       matches: JSON.parse(row.matches) as ScanResponse["matches"],
       reviews: {},
