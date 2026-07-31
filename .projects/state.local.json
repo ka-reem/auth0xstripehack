@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "project": {
+    "catalog": "prod",
+    "initializedAt": "2026-07-30T21:15:49.728Z",
+    "merchantDisplayName": "HallPass AI",
+    "merchantId": "acct_1RJ9izBFNaL3wGSl",
+    "projectId": "project_61V8PGIteQbg7ymBV16SSXgL3RSQGScBjTGxLn4ESAFM",
+    "projectName": "auth0xstripehack"
+  },
+  "providers": {
+    "auth0": {
+      "accountRequestId": "facctrq_61V8PM4AeofHlXH4R16SSXgL3RSQGScBjTGxLn4ESIZE",
+      "configuration": {
+        "locality": "us",
+        "naming_prefix": "stripehackproj"
+      },
+      "linkedAt": "2026-07-30T21:21:53.216Z",
+      "providerId": "prvdr_61UVctyxfLOj4FpVw5Bmi",
+      "providerName": "Auth0",
+      "redirectUrl": null,
+      "requestedAt": "2026-07-30T21:21:53.216Z",
+      "status": "complete"
+    }
+  },
+  "resources": {
+    "auth0-client": {
+      "configuration": {
+        "name": "auth0xstripehack",
+        "callbacks": [
+          "http://localhost:3000/auth/callback"
+        ],
+        "allowed_logout_urls": [
+          "http://localhost:3000"
+        ],
+        "web_origins": [
+          "http://localhost:3000"
+        ]
+      },
+      "createdAt": "2026-07-30T21:22:01.579Z",
+      "lastRevealedAt": "2026-07-30T23:00:14.875Z",
+      "lastStatus": "complete",
+      "name": "auth0-client",
+      "providerId": "prvdr_61UVctyxfLOj4FpVw5Bmi",
+      "providerName": "Auth0",
+      "resourceId": "fres_61V8PMDWFiYjCYNdJ16SSXgL3RSQGScBjTGxLn4ESM48",
+      "serviceId": "client"
+    },
+    "auth0-plan": {
+      "configuration": {},
+      "createdAt": "2026-07-30T21:21:56.478Z",
+      "lastRevealedAt": "2026-07-30T21:21:56.618Z",
+      "lastStatus": "complete",
+      "name": "auth0-plan",
+      "providerId": "prvdr_61UVctyxfLOj4FpVw5Bmi",
+      "providerName": "Auth0",
+      "resourceId": "fres_61V8PMAUAwiCSE81Q16SSXgL3RSQGScBjTGxLn4ESD9c",
+      "serviceId": "free"
+    }
+  }
+}
