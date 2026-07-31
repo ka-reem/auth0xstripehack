@@ -81,6 +81,7 @@ export type ScanMatch = {
   verification:
     | "metadata-candidate"
     | "transcript-candidate"
+    | "visual-web-candidate"
     | "controlled-match";
 };
 

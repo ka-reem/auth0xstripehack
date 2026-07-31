@@ -50,6 +50,7 @@ type RelayBindings = {
   SEARXNG_ENGINES?: string;
   GOOGLE_CSE_API_KEY?: string;
   GOOGLE_CSE_ID?: string;
+  GOOGLE_VISION_API_KEY?: string;
   TRANSCRIPTION_WORKER_URL?: string;
   TRANSCRIPTION_WORKER_TOKEN?: string;
   STRIPE_SECRET_KEY?: string;
@@ -85,6 +86,7 @@ export function runtimeSecret(
     | "SEARXNG_ENGINES"
     | "GOOGLE_CSE_API_KEY"
     | "GOOGLE_CSE_ID"
+    | "GOOGLE_VISION_API_KEY"
     | "TRANSCRIPTION_WORKER_URL"
     | "TRANSCRIPTION_WORKER_TOKEN"
     | "STRIPE_SECRET_KEY"

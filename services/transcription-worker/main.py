@@ -1,4 +1,6 @@
+import base64
 import os
+import subprocess
 import tempfile
 from functools import lru_cache
 from pathlib import Path
@@ -115,6 +117,77 @@ def source_context(metadata: dict) -> dict:
     }
 
 
+def source_duration(path: Path, metadata: dict) -> float:
+    duration = metadata.get("duration")
+    if isinstance(duration, (int, float)) and duration > 0:
+        return float(duration)
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return float(probe.stdout.strip() or 0)
+
+
+def extract_keyframes(path: Path, duration: float, directory: Path) -> list[dict]:
+    if duration <= 0:
+        timestamps = [0.5, 2.0, 5.0]
+    else:
+        timestamps = [
+            max(0.15, min(duration - 0.05, duration * position))
+            for position in (0.18, 0.5, 0.82)
+        ]
+    frames = []
+    seen_timestamps = set()
+    for index, timestamp in enumerate(timestamps):
+        rounded = round(timestamp, 3)
+        if rounded in seen_timestamps:
+            continue
+        seen_timestamps.add(rounded)
+        frame_path = directory / f"frame-{index + 1}.jpg"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                str(rounded),
+                "-i",
+                str(path),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=960:-2:force_original_aspect_ratio=decrease",
+                "-q:v",
+                "4",
+                "-y",
+                str(frame_path),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        if not frame_path.exists():
+            continue
+        frames.append(
+            {
+                "timestamp": rounded,
+                "content": base64.b64encode(frame_path.read_bytes()).decode("ascii"),
+            }
+        )
+    return frames
+
+
 @app.get("/health")
 def health() -> dict:
     return {
@@ -194,6 +267,54 @@ def discover_youtube(request: PublicDiscoveryRequest) -> dict:
             if len(results) >= 24:
                 break
     return {"queries": queries, "evaluated": len(results), "results": results}
+
+
+@app.post("/extract-frames", dependencies=[Depends(require_token)])
+def extract_frames(request: UrlTranscriptionRequest) -> dict:
+    source_url = str(request.url)
+    if not request.authorized:
+        raise HTTPException(
+            status_code=400,
+            detail="Rights-holder authorization must be confirmed.",
+        )
+    if not allowed_public_host(source_url):
+        raise HTTPException(
+            status_code=400,
+            detail="This source host is not on the public-media allowlist.",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="relay-frames-") as directory:
+        directory_path = Path(directory)
+        output_template = str(directory_path / "source.%(ext)s")
+        options = {
+            "format": "best[height<=720]/best",
+            "outtmpl": output_template,
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "restrictfilenames": True,
+            "max_filesize": MAX_UPLOAD_BYTES,
+        }
+        with YoutubeDL(options) as downloader:
+            metadata = downloader.extract_info(source_url, download=False)
+            duration = metadata.get("duration") or 0
+            if duration and duration > MAX_SOURCE_SECONDS:
+                raise HTTPException(
+                    status_code=413,
+                    detail="Source videos are limited to 60 minutes.",
+                )
+            downloaded = downloader.extract_info(source_url, download=True)
+            media_path = Path(downloader.prepare_filename(downloaded))
+        duration = source_duration(media_path, downloaded)
+        if duration > MAX_SOURCE_SECONDS:
+            raise HTTPException(
+                status_code=413,
+                detail="Source videos are limited to 60 minutes.",
+            )
+        return {
+            **source_context(downloaded),
+            "frames": extract_keyframes(media_path, duration, directory_path),
+        }
 
 
 @app.post("/transcribe", dependencies=[Depends(require_token)])

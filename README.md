@@ -16,6 +16,8 @@ discovery signals that still require visual/audio comparison and human review.
 - Public-source media retrieval through yt-dlp without cookies or access
   bypasses.
 - Distinctive phrase extraction from supplied or generated transcripts.
+- Optional source-frame web detection that returns exact pages containing full
+  or partial visual matches.
 - Parallel discovery agents for YouTube, TikTok, Instagram, Facebook, Vimeo, X,
   Reddit, Dailymotion, Twitch, and the broader web.
 - Credential-free public-index fallbacks for every platform whose official API
@@ -82,6 +84,7 @@ Add any credentials you have to `.env`:
 YOUTUBE_API_KEY=
 VIMEO_ACCESS_TOKEN=
 X_BEARER_TOKEN=
+GOOGLE_VISION_API_KEY=
 REDDIT_CLIENT_ID=
 REDDIT_CLIENT_SECRET=
 REDDIT_USER_AGENT=web:relay-rights-monitor:1.0
@@ -127,8 +130,10 @@ configure `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ID`.
 6. Relay extracts distinctive spoken phrases and combines them with the title.
 7. Ten platform and web-index agents run in parallel. Where an official API is
    unavailable, a domain-targeted public-index fallback runs instead.
-8. Candidate URLs are normalized, deduplicated, scored, and persisted.
-9. The user reviews candidates on `/results`, records a decision, and exports
+8. When Google Vision is configured, Relay extracts three source frames and
+   requests pages containing full or partial visual matches.
+9. Candidate URLs are normalized, deduplicated, scored, and persisted.
+10. The user reviews candidates on `/results`, records a decision, and exports
    evidence.
 
 ## Platform boundaries

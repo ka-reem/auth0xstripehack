@@ -312,8 +312,8 @@ export default function ResultsPage() {
               </div>
               <h1>
                 {candidateCount
-                  ? "Candidate reuploads found"
-                  : "No indexed match yet"}
+                  ? "Candidate post links found"
+                  : "No exact post links found"}
               </h1>
               <p>
                 Discovery plan{" "}
@@ -379,6 +379,16 @@ export default function ResultsPage() {
             </p>
             {report.sourceMetadata.description && (
               <blockquote>{report.sourceMetadata.description}</blockquote>
+            )}
+            {report.sourceType === "link" && (
+              <a
+                className="source-public-link"
+                href={report.source}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Original source: {report.source}
+              </a>
             )}
           </div>
 
@@ -588,7 +598,9 @@ export default function ResultsPage() {
                           {result.confidence}%{" "}
                           {result.verification === "controlled-match"
                             ? "match score"
-                            : "discovery score"}
+                            : result.verification === "visual-web-candidate"
+                              ? "visual match score"
+                              : "discovery score"}
                         </b>
                       </div>
                       <h3>{result.title}</h3>
@@ -684,11 +696,14 @@ export default function ResultsPage() {
                       </form>
                       {result.url ? (
                         <a
+                          className="exact-post-link"
                           href={result.url}
                           target="_blank"
                           rel="noreferrer"
                         >
-                          Open public post <span aria-hidden="true">↗</span>
+                          <small>EXACT CANDIDATE URL</small>
+                          <span>{result.url}</span>
+                          <b aria-hidden="true">↗</b>
                         </a>
                       ) : (
                         <span className="controlled-specimen">
@@ -703,13 +718,12 @@ export default function ResultsPage() {
           ) : (
             <div className="results-empty-state">
               <span>CURRENT COVERAGE EXHAUSTED</span>
-              <h2>No indexed match was found.</h2>
+              <h2>No exact post URLs were found.</h2>
               <p>
-                This does not prove that no repost exists. Relay searched the
-                available public indexes using source metadata and multiple
-                transcript variants. Connect official platform access to expand
-                coverage; Instagram, Facebook, and TikTok require approved
-                rights or research access for cross-account discovery.
+                This does not prove that no repost exists. Keyword and
+                transcript indexes cannot identify caption-changed copies.
+                Configure Google Vision Web Detection to extract source frames
+                and return pages containing full or partial visual matches.
               </p>
             </div>
           )}

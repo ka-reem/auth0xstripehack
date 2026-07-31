@@ -4885,6 +4885,37 @@ textarea {
   line-height: 1.55;
 }
 
+.source-intelligence .source-public-link {
+  display: block;
+  margin-top: 18px;
+  color: var(--acid);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.result-content .exact-post-link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.result-content .exact-post-link small {
+  grid-column: 1 / -1;
+  color: var(--acid);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.result-content .exact-post-link b {
+  color: var(--acid);
+}
+
 .transcript-intelligence > div:first-child {
   display: flex;
   align-items: center;

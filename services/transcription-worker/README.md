@@ -19,6 +19,8 @@ Authenticated local endpoints:
   transcribes it.
 - `POST /discover/youtube` searches the public YouTube index without downloading
   candidate videos.
+- `POST /extract-frames` returns three JPEG keyframes from an authorized public
+  source for visual web detection.
 
 Run it with the root local-services compose file:
 

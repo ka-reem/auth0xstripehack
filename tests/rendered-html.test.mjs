@@ -104,7 +104,8 @@ test("creates and completes a persistent scan job", async () => {
       (match) =>
         typeof match.url === "string" &&
         (match.verification === "metadata-candidate" ||
-          match.verification === "transcript-candidate"),
+          match.verification === "transcript-candidate" ||
+          match.verification === "visual-web-candidate"),
     ),
   );
   assert.deepEqual(
