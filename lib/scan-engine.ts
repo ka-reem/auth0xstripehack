@@ -471,7 +471,7 @@ export async function processScan(report: ScanResponse, ownerKey: string) {
               ? `${searchedProviders} discovery channels ran and returned ${discovery.matches.length} candidates for visual verification.`
               : `The source was processed and ${searchedProviders} available discovery channel${
                   searchedProviders === 1 ? "" : "s"
-                } found no indexed match. Restricted and credential-gated platforms were not searched.`
+                } found no indexed match. Public-index fallbacks were used where approved platform-wide API access was unavailable.`
             : "No live provider credentials are configured. The job completed without fabricating matches.",
       error: null,
     };

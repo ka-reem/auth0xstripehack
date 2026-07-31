@@ -16,9 +16,10 @@ discovery signals that still require visual/audio comparison and human review.
 - Public-source media retrieval through yt-dlp without cookies or access
   bypasses.
 - Distinctive phrase extraction from supplied or generated transcripts.
-- Parallel discovery agents for YouTube, Vimeo, X, Reddit, and a web index.
-- Capability-status agents for TikTok, Instagram, Facebook, Dailymotion, and
-  Twitch when their public APIs do not support this search workflow.
+- Parallel discovery agents for YouTube, TikTok, Instagram, Facebook, Vimeo, X,
+  Reddit, Dailymotion, Twitch, and the broader web.
+- Credential-free public-index fallbacks for every platform whose official API
+  is unavailable, restricted, or not configured.
 - Separate animated dashboard, multi-agent search sequence, results page, and
   case history.
 - JSON, print, and share-link evidence export.
@@ -86,9 +87,10 @@ REDDIT_CLIENT_SECRET=
 REDDIT_USER_AGENT=web:relay-rights-monitor:1.0
 ```
 
-Without credentials, the scan still persists successfully. Each unavailable
-agent reports `credentials required` or `restricted` and never fabricates
-matches.
+Without credentials, all ten agents still run. YouTube uses its public search
+index through the local worker, while the other platforms use targeted SearXNG
+queries. Official credentials replace those fallbacks where supported. Relay
+never fabricates matches.
 
 ## Auth and payments
 
@@ -109,10 +111,10 @@ candidate details until that cookie is valid. When Stripe is not configured,
 payments are disabled and local/judge workflows remain accessible.
 
 SearXNG is used as a cross-platform web index and has JSON output enabled in
-`services/search/settings.yml`. Existing Google Programmable Search customers
-can instead configure `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ID`, but Google has
-closed that API to new customers and announced discontinuation for January 1,
-2027.
+`services/search/settings.yml`. The local instance deliberately keeps only
+Bing, Mojeek, and Mwmbl enabled to avoid broken default engines and reduce
+rate-limit noise. Existing Google Programmable Search customers can instead
+configure `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ID`.
 
 ## Scan flow
 
@@ -123,26 +125,31 @@ closed that API to new customers and announced discontinuation for January 1,
 5. Relay transcribes the source locally, unless the user supplied transcript
    text.
 6. Relay extracts distinctive spoken phrases and combines them with the title.
-7. YouTube, Vimeo, X, Reddit, and web-index agents run in parallel.
+7. Ten platform and web-index agents run in parallel. Where an official API is
+   unavailable, a domain-targeted public-index fallback runs instead.
 8. Candidate URLs are normalized, deduplicated, scored, and persisted.
 9. The user reviews candidates on `/results`, records a decision, and exports
    evidence.
 
 ## Platform boundaries
 
-- **YouTube:** official Data API keyword discovery. Captions for arbitrary
-  public videos are not exposed by the captions API.
-- **Vimeo:** official public catalog metadata search.
-- **X:** official recent public-post search with video filters.
-- **Reddit:** official OAuth search for public video/link posts.
+- **YouTube:** official Data API keyword discovery when configured, with a
+  credential-free public YouTube search fallback through the local worker.
+- **Vimeo:** official public catalog metadata search when configured, otherwise
+  a targeted public-index search.
+- **X:** official recent public-post search with video filters when configured,
+  otherwise a targeted public-index search.
+- **Reddit:** official OAuth search for public video/link posts when configured,
+  otherwise a targeted public-index search.
 - **TikTok:** general public-video search requires approved Research API access;
   Display API access is limited to an authorized creator's videos.
 - **Instagram and Facebook:** general public cross-account video search is not
-  available through their standard APIs. Rights Manager is the native Meta
-  rights workflow.
+  available through their standard APIs. Relay searches pages visible to public
+  search engines; Rights Manager remains Meta's native private-corpus workflow.
 - **Dailymotion:** the public API is oriented toward authenticated catalog and
-  account operations, not global transcript matching.
-- **Twitch:** Helix channel/category search does not search spoken transcripts.
+  account operations, so Relay uses a targeted public-index fallback.
+- **Twitch:** Helix channel/category search does not search spoken transcripts,
+  so Relay uses a targeted public-index fallback.
 - **Web index:** transcript phrases are searched across public, indexed pages.
   Search-engine indexing is incomplete and does not prove ownership.
 

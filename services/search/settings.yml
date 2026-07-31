@@ -1,4 +1,9 @@
-use_default_settings: true
+use_default_settings:
+  engines:
+    keep_only:
+      - bing
+      - mojeek
+      - mwmbl
 
 server:
   bind_address: "0.0.0.0"
@@ -15,7 +20,10 @@ search:
 engines:
   - name: bing
     engine: bing
+    disabled: false
   - name: mojeek
     engine: mojeek
+    disabled: false
   - name: mwmbl
     engine: mwmbl
+    disabled: false

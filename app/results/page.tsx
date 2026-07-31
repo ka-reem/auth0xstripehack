@@ -423,7 +423,9 @@ export default function ResultsPage() {
               <span>CANDIDATE POSTS</span>
               <strong>{candidateCount.toString().padStart(2, "0")}</strong>
               <small>
-                {isDemo ? "controlled benchmark set" : "returned by official APIs"}
+                {isDemo
+                  ? "controlled benchmark set"
+                  : "retained discovery leads"}
               </small>
             </article>
             <article>

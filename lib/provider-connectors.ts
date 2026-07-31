@@ -97,48 +97,32 @@ type PublicYouTubeResult = {
   query?: string;
 };
 
-const restrictedProviders: ProviderReport[] = [
-  {
-    platform: "TikTok",
-    status: "restricted",
-    searched: false,
-    candidates: 0,
-    message:
-      "TikTok's official Display API lists an authenticated creator's videos; it does not provide global public-video search.",
-  },
-  {
-    platform: "Instagram",
-    status: "restricted",
-    searched: false,
-    candidates: 0,
-    message:
-      "Instagram does not expose a general public Reels search API for cross-account matching.",
-  },
-  {
-    platform: "Facebook",
-    status: "restricted",
-    searched: false,
-    candidates: 0,
-    message:
-      "Facebook discovery requires Meta-approved account or Rights Manager access; public web pages can still surface through the transcript agent.",
-  },
-  {
-    platform: "Dailymotion",
-    status: "restricted",
-    searched: false,
-    candidates: 0,
-    message:
-      "Dailymotion API v2 manages authenticated account content rather than a global transcript-search catalog.",
-  },
-  {
-    platform: "Twitch",
-    status: "restricted",
-    searched: false,
-    candidates: 0,
-    message:
-      "Twitch Helix searches channels, not spoken content inside all VODs; indexed public pages are handled by the transcript agent.",
-  },
-];
+const publicIndexTargets: Partial<Record<Platform, string[]>> = {
+  TikTok: ["tiktok.com"],
+  Instagram: ["instagram.com/reel"],
+  Facebook: ["facebook.com/reel", "fb.watch"],
+  Vimeo: ["vimeo.com"],
+  X: ["x.com", "twitter.com"],
+  Reddit: ["reddit.com", "v.redd.it"],
+  Dailymotion: ["dailymotion.com/video", "dai.ly"],
+  Twitch: ["twitch.tv/videos", "twitch.tv/clip"],
+};
+
+const searxWaiters: Array<() => void> = [];
+let activeSearxRequests = 0;
+
+async function withSearxSlot<T>(request: () => Promise<T>) {
+  if (activeSearxRequests >= 3) {
+    await new Promise<void>((resolve) => searxWaiters.push(resolve));
+  }
+  activeSearxRequests += 1;
+  try {
+    return await request();
+  } finally {
+    activeSearxRequests -= 1;
+    searxWaiters.shift()?.();
+  }
+}
 
 async function fetchJson<T>(
   input: string,
@@ -231,8 +215,20 @@ function platformForCandidate(value: string): Platform | null {
     if (host.endsWith("instagram.com")) return "Instagram";
     if (host.endsWith("facebook.com") || host === "fb.watch") return "Facebook";
     if (host.endsWith("vimeo.com")) return "Vimeo";
-    if (host === "x.com" || host.endsWith("twitter.com")) return "X";
-    if (host.endsWith("reddit.com") || host === "redd.it") return "Reddit";
+    if (
+      host === "x.com" ||
+      host.endsWith(".x.com") ||
+      host.endsWith("twitter.com")
+    ) {
+      return "X";
+    }
+    if (
+      host.endsWith("reddit.com") ||
+      host === "redd.it" ||
+      host.endsWith(".redd.it")
+    ) {
+      return "Reddit";
+    }
     if (host.endsWith("dailymotion.com") || host === "dai.ly") {
       return "Dailymotion";
     }
@@ -289,6 +285,61 @@ function failedReport(platform: Platform, message: string): ConnectorResult {
       message,
     },
     matches: [],
+  };
+}
+
+async function searchPublicPlatformIndex(
+  platform: Exclude<Platform, "YouTube" | "Web">,
+  queries: string[],
+  sourceUrl: string,
+  seeds: string[],
+  transcriptLed: boolean,
+): Promise<ConnectorResult> {
+  const targets = publicIndexTargets[platform] ?? [];
+  const unquoted =
+    queries.find((value) => !value.trim().startsWith('"')) || queries[0] || "";
+  const quoted =
+    queries.find((value) => value.trim().startsWith('"')) || queries[1] || "";
+  const siteFilter = targets.map((target) => `site:${target}`).join(" OR ");
+  const targetedQueries = [unquoted, quoted]
+    .filter(Boolean)
+    .map((value) => `(${siteFilter}) ${value}`.trim())
+    .filter(
+      (value, index, values) =>
+        values.findIndex((item) => item.toLowerCase() === value.toLowerCase()) ===
+        index,
+    )
+    .slice(0, 2);
+
+  const indexed = await searchWebIndex(
+    targetedQueries,
+    seeds,
+    transcriptLed,
+    sourceUrl,
+    { addVideoVariants: false, maxQueries: 2 },
+  );
+  const matches = indexed.matches
+    .filter((match) => match.platform === platform)
+    .map((match) => ({
+      ...match,
+      id: `${platform.toLowerCase()}-public-${match.id}`,
+      signals: [
+        `${platform} public-index fallback`,
+        ...match.signals.filter((signal) => !signal.includes("discovery")),
+      ],
+    }));
+
+  return {
+    report: {
+      platform,
+      status: indexed.report.status,
+      searched: indexed.report.searched,
+      candidates: matches.length,
+      message: indexed.report.searched
+        ? `${platform} public-index agent checked ${targetedQueries.length} targeted query variants and retained ${matches.length} plausible candidates. Coverage is limited to pages exposed to public search engines.`
+        : `${platform} public-index agent could not run. ${indexed.report.message}`,
+    },
+    matches,
   };
 }
 
@@ -504,21 +555,20 @@ async function searchYouTube(
 
 async function searchVimeo(
   query: string,
+  queries: string[],
+  sourceUrl: string,
   seeds: string[],
   transcriptLed: boolean,
 ): Promise<ConnectorResult> {
   const accessToken = runtimeSecret("VIMEO_ACCESS_TOKEN");
   if (!accessToken) {
-    return {
-      report: {
-        platform: "Vimeo",
-        status: "credentials_required",
-        searched: false,
-        candidates: 0,
-        message: "Add VIMEO_ACCESS_TOKEN to enable live Vimeo discovery.",
-      },
-      matches: [],
-    };
+    return searchPublicPlatformIndex(
+      "Vimeo",
+      queries,
+      sourceUrl,
+      seeds,
+      transcriptLed,
+    );
   }
 
   try {
@@ -591,21 +641,20 @@ async function searchVimeo(
 
 async function searchX(
   query: string,
+  queries: string[],
+  sourceUrl: string,
   seeds: string[],
   transcriptLed: boolean,
 ): Promise<ConnectorResult> {
   const bearerToken = runtimeSecret("X_BEARER_TOKEN");
   if (!bearerToken) {
-    return {
-      report: {
-        platform: "X",
-        status: "credentials_required",
-        searched: false,
-        candidates: 0,
-        message: "Add X_BEARER_TOKEN to search recent public posts with video.",
-      },
-      matches: [],
-    };
+    return searchPublicPlatformIndex(
+      "X",
+      queries,
+      sourceUrl,
+      seeds,
+      transcriptLed,
+    );
   }
 
   try {
@@ -704,6 +753,8 @@ async function redditAccessToken(
 
 async function searchReddit(
   query: string,
+  queries: string[],
+  sourceUrl: string,
   seeds: string[],
   transcriptLed: boolean,
 ): Promise<ConnectorResult> {
@@ -712,17 +763,13 @@ async function searchReddit(
   const userAgent =
     runtimeSecret("REDDIT_USER_AGENT") || "web:relay-rights-monitor:1.0";
   if (!clientId || !clientSecret) {
-    return {
-      report: {
-        platform: "Reddit",
-        status: "credentials_required",
-        searched: false,
-        candidates: 0,
-        message:
-          "Add REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET to search public Reddit video posts.",
-      },
-      matches: [],
-    };
+    return searchPublicPlatformIndex(
+      "Reddit",
+      queries,
+      sourceUrl,
+      seeds,
+      transcriptLed,
+    );
   }
 
   try {
@@ -807,6 +854,10 @@ async function searchWebIndex(
   seeds: string[],
   transcriptLed: boolean,
   sourceUrl: string,
+  options: {
+    addVideoVariants?: boolean;
+    maxQueries?: number;
+  } = {},
 ): Promise<ConnectorResult> {
   const searxngUrl = runtimeSecret("SEARXNG_URL");
   const googleKey = runtimeSecret("GOOGLE_CSE_API_KEY");
@@ -836,19 +887,22 @@ async function searchWebIndex(
       source?: string;
       published?: string;
     }> = [];
+    const maxQueries = options.maxQueries ?? 6;
     const queryPlan = [
-      ...queries.slice(0, 6),
-      ...queries
-        .slice(0, 2)
-        .filter((value) => !value.startsWith('"'))
-        .map((value) => `${value} video`),
+      ...queries.slice(0, maxQueries),
+      ...(options.addVideoVariants === false
+        ? []
+        : queries
+            .slice(0, 2)
+            .filter((value) => !value.startsWith('"'))
+            .map((value) => `${value} video`)),
     ]
       .map((value) => value.trim().slice(0, 180))
       .filter(
         (value, index, values) =>
           value && values.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index,
       )
-      .slice(0, 6);
+      .slice(0, maxQueries);
 
     if (searxngUrl) {
       const token = runtimeSecret("SEARXNG_TOKEN");
@@ -865,17 +919,19 @@ async function searchWebIndex(
             language: "en",
             engines,
           }).toString();
-          return fetchJson<{
-            results?: SearxResult[];
-            unresponsive_engines?: unknown[];
-          }>(
-            endpoint.toString(),
-            {
-              headers: token
-                ? { Authorization: `Bearer ${token}` }
-                : undefined,
-            },
-            12_000,
+          return withSearxSlot(() =>
+            fetchJson<{
+              results?: SearxResult[];
+              unresponsive_engines?: unknown[];
+            }>(
+              endpoint.toString(),
+              {
+                headers: token
+                  ? { Authorization: `Bearer ${token}` }
+                  : undefined,
+              },
+              12_000,
+            ),
           );
         }),
       );
@@ -987,8 +1043,8 @@ async function searchWebIndex(
         searched: true,
         candidates: matches.length,
         message: `${sourceName} ran ${queryPlan.length} query variants, evaluated ${rawResults.length} indexed pages, and retained ${matches.length} plausible video candidates.${
-          unresponsiveEngines
-            ? ` ${unresponsiveEngines} engine attempts were unavailable.`
+          unresponsiveEngines || failedQueries
+            ? " Some backup-engine attempts were unavailable; results from responsive engines were still evaluated."
             : ""
         }`,
       },
@@ -1014,14 +1070,14 @@ export function initialProviderReports(): ProviderReport[] {
   });
   return [
     queued("YouTube"),
-    restrictedProviders[0],
-    restrictedProviders[1],
-    restrictedProviders[2],
+    queued("TikTok"),
+    queued("Instagram"),
+    queued("Facebook"),
     queued("Vimeo"),
     queued("X"),
     queued("Reddit"),
-    restrictedProviders[3],
-    restrictedProviders[4],
+    queued("Dailymotion"),
+    queued("Twitch"),
     queued("Web"),
   ];
 }
@@ -1046,19 +1102,70 @@ export async function runProviderDiscovery({
   const transcriptLed = phrases.length > 0;
   const query = queries[0] || phrases[0] || title;
   const queryPlan = queries.length ? queries : [query];
-  const [youtube, vimeo, x, reddit, web] = await Promise.all([
+  const [
+    youtube,
+    tiktok,
+    instagram,
+    facebook,
+    vimeo,
+    x,
+    reddit,
+    dailymotion,
+    twitch,
+    web,
+  ] = await Promise.all([
     searchYouTube(query, queryPlan, sourceUrl, seeds, transcriptLed),
-    searchVimeo(query, seeds, transcriptLed),
-    searchX(query, seeds, transcriptLed),
-    searchReddit(query, seeds, transcriptLed),
+    searchPublicPlatformIndex(
+      "TikTok",
+      queryPlan,
+      sourceUrl,
+      seeds,
+      transcriptLed,
+    ),
+    searchPublicPlatformIndex(
+      "Instagram",
+      queryPlan,
+      sourceUrl,
+      seeds,
+      transcriptLed,
+    ),
+    searchPublicPlatformIndex(
+      "Facebook",
+      queryPlan,
+      sourceUrl,
+      seeds,
+      transcriptLed,
+    ),
+    searchVimeo(query, queryPlan, sourceUrl, seeds, transcriptLed),
+    searchX(query, queryPlan, sourceUrl, seeds, transcriptLed),
+    searchReddit(query, queryPlan, sourceUrl, seeds, transcriptLed),
+    searchPublicPlatformIndex(
+      "Dailymotion",
+      queryPlan,
+      sourceUrl,
+      seeds,
+      transcriptLed,
+    ),
+    searchPublicPlatformIndex(
+      "Twitch",
+      queryPlan,
+      sourceUrl,
+      seeds,
+      transcriptLed,
+    ),
     searchWebIndex(queryPlan, seeds, transcriptLed, sourceUrl),
   ]);
   const matchByUrl = new Map<string, ScanMatch>();
   for (const match of [
     ...youtube.matches,
+    ...tiktok.matches,
+    ...instagram.matches,
+    ...facebook.matches,
     ...vimeo.matches,
     ...x.matches,
     ...reddit.matches,
+    ...dailymotion.matches,
+    ...twitch.matches,
     ...web.matches,
   ]) {
     const existing = matchByUrl.get(match.url);
@@ -1073,14 +1180,14 @@ export async function runProviderDiscovery({
   return {
     providers: [
       youtube.report,
-      restrictedProviders[0],
-      restrictedProviders[1],
-      restrictedProviders[2],
+      tiktok.report,
+      instagram.report,
+      facebook.report,
       vimeo.report,
       x.report,
       reddit.report,
-      restrictedProviders[3],
-      restrictedProviders[4],
+      dailymotion.report,
+      twitch.report,
       web.report,
     ],
     matches,
