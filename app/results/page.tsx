@@ -244,15 +244,28 @@ export default function ResultsPage() {
     setFramesPreparing(true);
     setFramesError("");
     try {
-      const response = await fetch("/api/frames", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: report.source }),
-      });
-      const payload = (await response.json()) as {
-        frames?: PreparedFrame[];
-        error?: string;
-      };
+      let response: Response | null = null;
+      let payload: { frames?: PreparedFrame[]; error?: string } = {};
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = await fetch("/api/frames", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source: report.source }),
+        });
+        const rawBody = await response.text();
+        try {
+          payload = JSON.parse(rawBody) as typeof payload;
+        } catch {
+          payload = {
+            error: response.ok
+              ? "The frame service returned an unreadable response."
+              : `The frame service is temporarily unavailable (${response.status}).`,
+          };
+        }
+        if (response.ok || response.status < 500) break;
+        await wait(500);
+      }
+      if (!response) throw new Error("The frame service did not respond.");
       if (!response.ok || !payload.frames?.length) {
         throw new Error(payload.error || "No source frames were extracted.");
       }
