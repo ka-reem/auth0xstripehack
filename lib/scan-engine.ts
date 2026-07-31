@@ -12,6 +12,7 @@ import type {
 } from "./scan-contract";
 import { updateScan, uploadBucket } from "./scan-store";
 import {
+  buildDiscoveryQueries,
   emptyTranscriptFields,
   transcriptFields,
 } from "./transcript-discovery";
@@ -257,7 +258,10 @@ export async function metadataForLink(
     title: embed?.title?.trim() || fallbackTitle(url),
     platform,
     author: embed?.author_name?.trim() || null,
+    description: null,
     thumbnailUrl: embed?.thumbnail_url || null,
+    canonicalUrl: url.toString(),
+    sourceDuration: null,
     integrityHash: null,
     objectKey: null,
     ...transcript,
@@ -320,7 +324,10 @@ export async function metadataForUpload(
     title,
     platform: "Direct upload",
     author: null,
+    description: null,
     thumbnailUrl: null,
+    canonicalUrl: null,
+    sourceDuration: null,
     integrityHash,
     objectKey,
     ...(transcriptHint.trim()
@@ -335,7 +342,11 @@ export function metadataForDemo(): SourceMetadata {
     title: "Relay launch film — controlled benchmark",
     platform: "Direct upload",
     author: "Relay benchmark suite",
+    description:
+      "A controlled Relay launch-film specimen used to validate the evidence workflow.",
     thumbnailUrl: null,
+    canonicalUrl: null,
+    sourceDuration: 48,
     integrityHash:
       "4f8c2f6c85ae589ad86a724b48d8d9dc7244c4c64b2da8c1fa2b7e832cd0f61a",
     objectKey: null,
@@ -400,14 +411,25 @@ export async function processScan(report: ScanResponse, ownerKey: string) {
   try {
     let active = running;
     if (running.sourceType === "upload" || running.sourceType === "link") {
-      const sourceMetadata =
+      const processedMetadata =
         running.sourceType === "upload"
           ? await transcribeStoredSource(running.sourceMetadata)
           : await transcribeLinkedSource(running.sourceMetadata, running.source);
+      const sourceMetadata = {
+        ...processedMetadata,
+        discoveryQueries: buildDiscoveryQueries({
+          title: processedMetadata.title,
+          description: processedMetadata.description,
+          author: processedMetadata.author,
+          phrases: processedMetadata.discoveryPhrases,
+          transcript: processedMetadata.transcriptExcerpt,
+        }),
+      };
       active = {
         ...running,
         sourceMetadata,
         query:
+          sourceMetadata.discoveryQueries[0] ||
           sourceMetadata.discoveryPhrases[0] ||
           sourceMetadata.title,
         progress: 58,
@@ -425,7 +447,10 @@ export async function processScan(report: ScanResponse, ownerKey: string) {
         ? { providers: demoProviders, matches: demoMatches }
         : await runProviderDiscovery({
             title: active.sourceMetadata.title,
+            description: active.sourceMetadata.description,
+            author: active.sourceMetadata.author,
             phrases: active.sourceMetadata.discoveryPhrases,
+            queries: active.sourceMetadata.discoveryQueries,
             sourceUrl: active.sourceType === "link" ? active.source : "",
           });
     const searchedProviders = discovery.providers.filter(
@@ -442,9 +467,11 @@ export async function processScan(report: ScanResponse, ownerKey: string) {
         active.sourceType === "demo"
           ? "Controlled benchmark complete. These six labeled specimens demonstrate the evidence workflow; they are not claims about live public posts."
           : searchedProviders > 0
-            ? `${searchedProviders} live provider connector${
-                searchedProviders === 1 ? "" : "s"
-              } ran. Results are discovery candidates and still require visual verification.`
+            ? discovery.matches.length
+              ? `${searchedProviders} discovery channels ran and returned ${discovery.matches.length} candidates for visual verification.`
+              : `The source was processed and ${searchedProviders} available discovery channel${
+                  searchedProviders === 1 ? "" : "s"
+                } found no indexed match. Restricted and credential-gated platforms were not searched.`
             : "No live provider credentials are configured. The job completed without fabricating matches.",
       error: null,
     };

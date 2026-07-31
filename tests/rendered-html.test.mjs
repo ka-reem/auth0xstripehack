@@ -124,7 +124,7 @@ test("creates and completes a persistent scan job", async () => {
   );
   assert.match(
     completed.notice,
-    /without fabricating matches|discovery candidates/i,
+    /no indexed match|without fabricating matches|discovery candidates/i,
   );
 });
 
@@ -145,6 +145,7 @@ test("turns a supplied transcript into distinctive discovery phrases", async () 
   assert.equal(created.sourceMetadata.transcriptStatus, "provided");
   assert.equal(created.sourceMetadata.transcriptProvider, "manual");
   assert.ok(created.sourceMetadata.discoveryPhrases.length >= 1);
+  assert.deepEqual(created.sourceMetadata.discoveryQueries, []);
 
   const completedResponse = await request(
     `/api/scan?scan=${encodeURIComponent(created.scanId)}`,
@@ -152,6 +153,7 @@ test("turns a supplied transcript into distinctive discovery phrases", async () 
   const completed = await completedResponse.json();
   assert.equal(completed.status, "completed");
   assert.equal(completed.sourceMetadata.transcriptStatus, "provided");
+  assert.ok(completed.sourceMetadata.discoveryQueries.length >= 2);
   assert.match(
     completed.sourceMetadata.discoveryPhrases.join(" "),
     /cobalt river|seventeen minutes/i,

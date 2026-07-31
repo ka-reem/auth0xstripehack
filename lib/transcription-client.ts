@@ -11,9 +11,39 @@ type TranscriptionResponse = {
     end: number;
     text: string;
   }>;
+  source_title?: string;
+  source_description?: string;
+  source_uploader?: string;
+  source_channel?: string;
+  source_thumbnail?: string;
+  source_duration?: number;
+  source_url?: string;
   error?: string;
   detail?: string;
 };
+
+function enrichedMetadata(
+  metadata: SourceMetadata,
+  payload: TranscriptionResponse,
+) {
+  const title = payload.source_title?.trim();
+  const author =
+    payload.source_channel?.trim() || payload.source_uploader?.trim();
+  return {
+    ...metadata,
+    title: title || metadata.title,
+    author: author || metadata.author,
+    description:
+      payload.source_description?.trim() || metadata.description,
+    thumbnailUrl:
+      payload.source_thumbnail?.trim() || metadata.thumbnailUrl,
+    canonicalUrl: payload.source_url?.trim() || metadata.canonicalUrl,
+    sourceDuration:
+      typeof payload.source_duration === "number"
+        ? payload.source_duration
+        : metadata.sourceDuration,
+  };
+}
 
 function completedMetadata(
   metadata: SourceMetadata,
@@ -23,7 +53,7 @@ function completedMetadata(
     throw new Error(payload.error || "The transcription worker returned no text.");
   }
   return {
-    ...metadata,
+    ...enrichedMetadata(metadata, payload),
     ...transcriptFields(
       payload.text,
       "faster-whisper",
@@ -39,6 +69,30 @@ function workerHeaders() {
     : undefined;
 }
 
+async function inspectLinkedSource(
+  metadata: SourceMetadata,
+  sourceUrl: string,
+) {
+  const workerUrl = runtimeSecret("TRANSCRIPTION_WORKER_URL");
+  if (!workerUrl) return metadata;
+  try {
+    const endpoint = new URL("/inspect-url", workerUrl);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...workerHeaders(),
+      },
+      body: JSON.stringify({ url: sourceUrl, authorized: true }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const payload = (await response.json()) as TranscriptionResponse;
+    return response.ok ? enrichedMetadata(metadata, payload) : metadata;
+  } catch {
+    return metadata;
+  }
+}
+
 export async function transcribeLinkedSource(
   metadata: SourceMetadata,
   sourceUrl: string,
@@ -47,7 +101,7 @@ export async function transcribeLinkedSource(
     metadata.transcriptStatus === "provided" ||
     metadata.transcriptStatus === "ready"
   ) {
-    return metadata;
+    return inspectLinkedSource(metadata, sourceUrl);
   }
 
   const workerUrl = runtimeSecret("TRANSCRIPTION_WORKER_URL");

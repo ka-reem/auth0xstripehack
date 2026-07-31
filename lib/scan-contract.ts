@@ -38,13 +38,17 @@ export type SourceMetadata = {
   title: string;
   platform: Platform | "Direct upload" | "Web";
   author: string | null;
+  description: string | null;
   thumbnailUrl: string | null;
+  canonicalUrl: string | null;
+  sourceDuration: number | null;
   integrityHash: string | null;
   objectKey: string | null;
   transcriptStatus: TranscriptStatus;
   transcriptLanguage: string | null;
   transcriptExcerpt: string | null;
   discoveryPhrases: string[];
+  discoveryQueries: string[];
   transcriptProvider: "manual" | "faster-whisper" | null;
   transcriptMessage: string;
 };

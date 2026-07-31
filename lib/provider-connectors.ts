@@ -85,6 +85,18 @@ type GoogleSearchItem = {
   displayLink?: string;
 };
 
+type PublicYouTubeResult = {
+  id?: string;
+  title?: string;
+  description?: string;
+  url?: string;
+  uploader?: string;
+  duration?: number;
+  timestamp?: number;
+  view_count?: number;
+  query?: string;
+};
+
 const restrictedProviders: ProviderReport[] = [
   {
     platform: "TikTok",
@@ -280,24 +292,119 @@ function failedReport(platform: Platform, message: string): ConnectorResult {
   };
 }
 
-async function searchYouTube(
-  query: string,
+async function searchYouTubePublicIndex(
+  queries: string[],
   sourceUrl: string,
   seeds: string[],
-  transcriptLed: boolean,
 ): Promise<ConnectorResult> {
-  const apiKey = runtimeSecret("YOUTUBE_API_KEY");
-  if (!apiKey) {
+  const workerUrl = runtimeSecret("TRANSCRIPTION_WORKER_URL");
+  if (!workerUrl) {
     return {
       report: {
         platform: "YouTube",
         status: "credentials_required",
         searched: false,
         candidates: 0,
-        message: "Add YOUTUBE_API_KEY to enable live YouTube keyword discovery.",
+        message:
+          "Add YOUTUBE_API_KEY or run the local discovery worker to search YouTube.",
       },
       matches: [],
     };
+  }
+
+  try {
+    const endpoint = new URL("/discover/youtube", workerUrl);
+    const workerToken = runtimeSecret("TRANSCRIPTION_WORKER_TOKEN");
+    const payload = await fetchJson<{
+      queries?: string[];
+      evaluated?: number;
+      results?: PublicYouTubeResult[];
+    }>(
+      endpoint.toString(),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(workerToken
+            ? { Authorization: `Bearer ${workerToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          queries: queries.slice(0, 3),
+          source_url: sourceUrl || null,
+        }),
+      },
+      20_000,
+    );
+    const sourceId = youtubeVideoId(sourceUrl);
+    const matches = (payload.results ?? [])
+      .filter((result) => result.id && result.id !== sourceId && result.url)
+      .map((result, index): ScanMatch => {
+        const title = result.title || "Untitled YouTube candidate";
+        const candidateText = `${title} ${result.description || ""} ${
+          result.uploader || ""
+        }`;
+        return {
+          id: `youtube-public-${result.id || index}`,
+          title,
+          url: result.url as string,
+          platform: "YouTube",
+          views:
+            typeof result.view_count === "number" ? result.view_count : null,
+          confidence: textSimilarity(seeds, candidateText),
+          uploader: result.uploader || "Unknown channel",
+          duration: formatDuration(result.duration),
+          published: displayUnixDate(result.timestamp),
+          signals: [
+            "Public YouTube index",
+            "Source metadata and transcript overlap",
+          ],
+          transformations: [],
+          visualSimilarity: null,
+          audioSimilarity: null,
+          temporalSimilarity: null,
+          matchedDuration: null,
+          tone: "amber",
+          verification: "metadata-candidate",
+        };
+      })
+      .filter((match) => match.confidence >= 34)
+      .slice(0, 10);
+
+    return {
+      report: {
+        platform: "YouTube",
+        status: "completed",
+        searched: true,
+        candidates: matches.length,
+        message: `Public YouTube discovery evaluated ${
+          payload.evaluated ?? 0
+        } results across ${payload.queries?.length ?? 0} query variants and retained ${
+          matches.length
+        } plausible candidates.`,
+      },
+      matches,
+    };
+  } catch (error) {
+    return failedReport(
+      "YouTube",
+      error instanceof Error
+        ? `Public YouTube discovery failed: ${error.message}`
+        : "Public YouTube discovery failed.",
+    );
+  }
+}
+
+async function searchYouTube(
+  query: string,
+  queries: string[],
+  sourceUrl: string,
+  seeds: string[],
+  transcriptLed: boolean,
+): Promise<ConnectorResult> {
+  const apiKey = runtimeSecret("YOUTUBE_API_KEY");
+  if (!apiKey) {
+    return searchYouTubePublicIndex(queries, sourceUrl, seeds);
   }
 
   try {
@@ -696,9 +803,10 @@ async function searchReddit(
 }
 
 async function searchWebIndex(
-  query: string,
+  queries: string[],
   seeds: string[],
   transcriptLed: boolean,
+  sourceUrl: string,
 ): Promise<ConnectorResult> {
   const searxngUrl = runtimeSecret("SEARXNG_URL");
   const googleKey = runtimeSecret("GOOGLE_CSE_API_KEY");
@@ -717,98 +825,142 @@ async function searchWebIndex(
     };
   }
 
-  const domains = [
-    "youtube.com",
-    "tiktok.com",
-    "instagram.com",
-    "facebook.com",
-    "vimeo.com",
-    "x.com",
-    "twitter.com",
-    "reddit.com",
-    "dailymotion.com",
-    "twitch.tv",
-  ];
-  const cleanQuery = query.replaceAll('"', "").slice(0, 180);
-  const domainQuery = domains.map((domain) => `site:${domain}`).join(" OR ");
-  const searchQuery = transcriptLed
-    ? `"${cleanQuery}" (${domainQuery})`
-    : `${cleanQuery} (${domainQuery})`;
-
   try {
     let sourceName = "SearXNG";
-    let rawResults: Array<{
+    let failedQueries = 0;
+    let unresponsiveEngines = 0;
+    const rawResults: Array<{
       title?: string;
       url?: string;
       content?: string;
       source?: string;
       published?: string;
     }> = [];
+    const queryPlan = [
+      ...queries.slice(0, 6),
+      ...queries
+        .slice(0, 2)
+        .filter((value) => !value.startsWith('"'))
+        .map((value) => `${value} video`),
+    ]
+      .map((value) => value.trim().slice(0, 180))
+      .filter(
+        (value, index, values) =>
+          value && values.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index,
+      )
+      .slice(0, 6);
 
     if (searxngUrl) {
-      const endpoint = new URL("/search", searxngUrl);
-      endpoint.search = new URLSearchParams({
-        q: searchQuery,
-        format: "json",
-        categories: "general",
-        safesearch: "1",
-        language: "en",
-      }).toString();
       const token = runtimeSecret("SEARXNG_TOKEN");
-      const payload = await fetchJson<{ results?: SearxResult[] }>(
-        endpoint.toString(),
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        },
-        12_000,
+      const engines =
+        runtimeSecret("SEARXNG_ENGINES") || "bing,mojeek,mwmbl";
+      const responses = await Promise.allSettled(
+        queryPlan.map(async (searchQuery) => {
+          const endpoint = new URL("/search", searxngUrl);
+          endpoint.search = new URLSearchParams({
+            q: searchQuery,
+            format: "json",
+            categories: "general",
+            safesearch: "1",
+            language: "en",
+            engines,
+          }).toString();
+          return fetchJson<{
+            results?: SearxResult[];
+            unresponsive_engines?: unknown[];
+          }>(
+            endpoint.toString(),
+            {
+              headers: token
+                ? { Authorization: `Bearer ${token}` }
+                : undefined,
+            },
+            12_000,
+          );
+        }),
       );
-      rawResults = (payload.results ?? []).map((result) => ({
-        title: result.title,
-        url: result.url,
-        content: result.content,
-        source: result.engine,
-        published: result.publishedDate,
-      }));
+      for (const response of responses) {
+        if (response.status === "rejected") {
+          failedQueries += 1;
+          continue;
+        }
+        unresponsiveEngines += response.value.unresponsive_engines?.length ?? 0;
+        rawResults.push(
+          ...(response.value.results ?? []).map((result) => ({
+            title: result.title,
+            url: result.url,
+            content: result.content,
+            source: result.engine,
+            published: result.publishedDate,
+          })),
+        );
+      }
     } else {
       sourceName = "Google Programmable Search";
-      const endpoint = new URL(
-        "https://customsearch.googleapis.com/customsearch/v1",
+      const responses = await Promise.allSettled(
+        queryPlan.slice(0, 4).map(async (searchQuery) => {
+          const endpoint = new URL(
+            "https://customsearch.googleapis.com/customsearch/v1",
+          );
+          endpoint.search = new URLSearchParams({
+            key: googleKey as string,
+            cx: googleCx as string,
+            q: searchQuery,
+            num: "10",
+            safe: "active",
+          }).toString();
+          return fetchJson<{ items?: GoogleSearchItem[] }>(endpoint.toString());
+        }),
       );
-      endpoint.search = new URLSearchParams({
-        key: googleKey as string,
-        cx: googleCx as string,
-        q: searchQuery,
-        num: "10",
-        safe: "active",
-      }).toString();
-      const payload = await fetchJson<{ items?: GoogleSearchItem[] }>(
-        endpoint.toString(),
+      for (const response of responses) {
+        if (response.status === "rejected") {
+          failedQueries += 1;
+          continue;
+        }
+        rawResults.push(
+          ...(response.value.items ?? []).map((result) => ({
+            title: result.title,
+            url: result.link,
+            content: result.snippet,
+            source: result.displayLink,
+          })),
+        );
+      }
+    }
+
+    if (!rawResults.length && failedQueries === queryPlan.length) {
+      return failedReport(
+        "Web",
+        `${sourceName} failed every discovery query. No web coverage was available.`,
       );
-      rawResults = (payload.items ?? []).map((result) => ({
-        title: result.title,
-        url: result.link,
-        content: result.snippet,
-        source: result.displayLink,
-      }));
     }
 
     const seen = new Set<string>();
     const matches: ScanMatch[] = [];
+    const normalizedSource = sourceUrl.replace(/\/+$/, "");
     for (const result of rawResults) {
-      if (!result.url || seen.has(result.url)) continue;
+      if (
+        !result.url ||
+        seen.has(result.url) ||
+        result.url.replace(/\/+$/, "") === normalizedSource
+      ) {
+        continue;
+      }
       const platform = platformForCandidate(result.url);
       if (!platform) continue;
       seen.add(result.url);
       const title = cleanWebTitle(result.title);
+      const confidence = transcriptLed
+        ? textSimilarity(seeds, `${title} ${result.content || ""}`)
+        : titleScore(queries[0] || "", `${title} ${result.content || ""}`);
+      if (confidence < (transcriptLed ? 34 : 28)) continue;
       matches.push({
         id: `web-${platform.toLowerCase()}-${matches.length + 1}`,
         title,
         url: result.url,
         platform,
         views: null,
-        confidence: transcriptLed
-          ? textSimilarity(seeds, `${title} ${result.content || ""}`)
-          : titleScore(query, `${title} ${result.content || ""}`),
+        confidence,
         uploader: result.source || new URL(result.url).hostname,
         duration: "—",
         published: displayDate(result.published),
@@ -834,7 +986,11 @@ async function searchWebIndex(
         status: "completed",
         searched: true,
         candidates: matches.length,
-        message: `${sourceName} searched indexed public video pages and returned ${matches.length} candidates.`,
+        message: `${sourceName} ran ${queryPlan.length} query variants, evaluated ${rawResults.length} indexed pages, and retained ${matches.length} plausible video candidates.${
+          unresponsiveEngines
+            ? ` ${unresponsiveEngines} engine attempts were unavailable.`
+            : ""
+        }`,
       },
       matches,
     };
@@ -872,22 +1028,30 @@ export function initialProviderReports(): ProviderReport[] {
 
 export async function runProviderDiscovery({
   title,
+  description,
+  author,
   phrases,
+  queries,
   sourceUrl,
 }: {
   title: string;
+  description: string | null;
+  author: string | null;
   phrases: string[];
+  queries: string[];
   sourceUrl: string;
 }) {
-  const seeds = discoverySeeds(title, phrases);
+  const sourceContext = [title, description, author].filter(Boolean).join(" ");
+  const seeds = discoverySeeds(sourceContext, phrases);
   const transcriptLed = phrases.length > 0;
-  const query = phrases[0] || title;
+  const query = queries[0] || phrases[0] || title;
+  const queryPlan = queries.length ? queries : [query];
   const [youtube, vimeo, x, reddit, web] = await Promise.all([
-    searchYouTube(query, sourceUrl, seeds, transcriptLed),
+    searchYouTube(query, queryPlan, sourceUrl, seeds, transcriptLed),
     searchVimeo(query, seeds, transcriptLed),
     searchX(query, seeds, transcriptLed),
     searchReddit(query, seeds, transcriptLed),
-    searchWebIndex(query, seeds, transcriptLed),
+    searchWebIndex(queryPlan, seeds, transcriptLed, sourceUrl),
   ]);
   const matchByUrl = new Map<string, ScanMatch>();
   for (const match of [

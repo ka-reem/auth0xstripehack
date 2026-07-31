@@ -4832,14 +4832,57 @@ textarea {
   color: #b9a9ff;
 }
 
+.source-intelligence,
 .transcript-intelligence {
   margin: 0 0 20px;
-  padding: 20px;
+  padding: 24px;
   border: 1px solid rgba(141, 107, 255, 0.22);
   border-radius: 15px;
   background:
     linear-gradient(120deg, rgba(141, 107, 255, 0.07), transparent 55%),
     rgba(11, 12, 15, 0.64);
+}
+
+.source-intelligence {
+  border-color: rgba(201, 255, 74, 0.2);
+  background:
+    linear-gradient(120deg, rgba(201, 255, 74, 0.055), transparent 55%),
+    rgba(11, 12, 15, 0.64);
+}
+
+.source-intelligence > div {
+  display: grid;
+  gap: 7px;
+}
+
+.source-intelligence span,
+.source-intelligence strong {
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.source-intelligence span {
+  color: var(--acid);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+.source-intelligence strong {
+  color: #f0efe9;
+  font-size: clamp(20px, 2.2vw, 30px);
+  font-weight: 500;
+}
+
+.source-intelligence p {
+  margin: 12px 0 0;
+  color: #9a9ca1;
+  font-size: 15px;
+}
+
+.source-intelligence blockquote {
+  margin: 17px 0 0;
+  color: #c8c7c1;
+  font-size: 17px;
+  line-height: 1.55;
 }
 
 .transcript-intelligence > div:first-child {
@@ -4852,7 +4895,7 @@ textarea {
 .transcript-intelligence span,
 .transcript-intelligence strong {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
 }
@@ -4869,7 +4912,7 @@ textarea {
 .transcript-intelligence p {
   margin: 11px 0 0;
   color: #8c8e94;
-  font-size: 11px;
+  font-size: 15px;
   line-height: 1.55;
 }
 
@@ -4898,6 +4941,41 @@ textarea {
   border: 1px solid rgba(201, 255, 74, 0.14);
   border-radius: 8px;
   color: #9da78a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.query-plan {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 17px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.query-plan small {
+  color: #7f8187;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.query-plan > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.query-plan span {
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(141, 107, 255, 0.22);
+  border-radius: 8px;
+  color: #aaa1d2;
+  font-size: 12px;
+  letter-spacing: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   text-transform: none;

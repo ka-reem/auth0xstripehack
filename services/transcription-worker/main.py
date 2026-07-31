@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from faster_whisper import WhisperModel
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 from yt_dlp import YoutubeDL
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
@@ -41,6 +41,11 @@ app = FastAPI(
 class UrlTranscriptionRequest(BaseModel):
     url: HttpUrl
     authorized: bool
+
+
+class PublicDiscoveryRequest(BaseModel):
+    queries: list[str] = Field(min_length=1, max_length=4)
+    source_url: HttpUrl | None = None
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:
@@ -98,6 +103,18 @@ def allowed_public_host(value: str) -> bool:
     return any(host == allowed or host.endswith(f".{allowed}") for allowed in ALLOWED_HOSTS)
 
 
+def source_context(metadata: dict) -> dict:
+    return {
+        "source_title": metadata.get("title"),
+        "source_description": metadata.get("description"),
+        "source_uploader": metadata.get("uploader"),
+        "source_channel": metadata.get("channel") or metadata.get("uploader_id"),
+        "source_thumbnail": metadata.get("thumbnail"),
+        "source_duration": metadata.get("duration"),
+        "source_url": metadata.get("webpage_url") or metadata.get("original_url"),
+    }
+
+
 @app.get("/health")
 def health() -> dict:
     return {
@@ -105,6 +122,78 @@ def health() -> dict:
         "model": os.getenv("WHISPER_MODEL", "small"),
         "device": os.getenv("WHISPER_DEVICE", "cpu"),
     }
+
+
+@app.post("/inspect-url", dependencies=[Depends(require_token)])
+def inspect_url(request: UrlTranscriptionRequest) -> dict:
+    source_url = str(request.url)
+    if not request.authorized:
+        raise HTTPException(
+            status_code=400,
+            detail="Rights-holder authorization must be confirmed.",
+        )
+    if not allowed_public_host(source_url):
+        raise HTTPException(
+            status_code=400,
+            detail="This source host is not on the public-media allowlist.",
+        )
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+    }
+    with YoutubeDL(options) as downloader:
+        metadata = downloader.extract_info(source_url, download=False)
+    return source_context(metadata)
+
+
+@app.post("/discover/youtube", dependencies=[Depends(require_token)])
+def discover_youtube(request: PublicDiscoveryRequest) -> dict:
+    queries = []
+    for value in request.queries:
+        cleaned = " ".join(value.replace('"', " ").split())[:180]
+        if cleaned and cleaned.lower() not in {item.lower() for item in queries}:
+            queries.append(cleaned)
+    if not queries:
+        raise HTTPException(status_code=400, detail="At least one query is required.")
+
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": "in_playlist",
+        "playlistend": 8,
+    }
+    results = []
+    seen = set()
+    with YoutubeDL(options) as downloader:
+        for query in queries:
+            payload = downloader.extract_info(f"ytsearch8:{query}", download=False)
+            for entry in payload.get("entries") or []:
+                video_id = entry.get("id")
+                if not video_id or video_id in seen:
+                    continue
+                seen.add(video_id)
+                results.append(
+                    {
+                        "id": video_id,
+                        "title": entry.get("title"),
+                        "description": entry.get("description"),
+                        "url": entry.get("webpage_url")
+                        or entry.get("url")
+                        or f"https://www.youtube.com/watch?v={video_id}",
+                        "uploader": entry.get("channel") or entry.get("uploader"),
+                        "duration": entry.get("duration"),
+                        "timestamp": entry.get("timestamp"),
+                        "view_count": entry.get("view_count"),
+                        "query": query,
+                    }
+                )
+                if len(results) >= 24:
+                    break
+            if len(results) >= 24:
+                break
+    return {"queries": queries, "evaluated": len(results), "results": results}
 
 
 @app.post("/transcribe", dependencies=[Depends(require_token)])
@@ -161,6 +250,5 @@ def transcribe_url(request: UrlTranscriptionRequest) -> dict:
             downloaded = downloader.extract_info(source_url, download=True)
             media_path = Path(downloader.prepare_filename(downloaded))
         result = transcribe_path(media_path)
-        result["source_title"] = downloaded.get("title")
-        result["source_uploader"] = downloaded.get("uploader")
+        result.update(source_context(downloaded))
         return result

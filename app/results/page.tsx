@@ -313,10 +313,16 @@ export default function ResultsPage() {
               <h1>
                 {candidateCount
                   ? "Candidate reuploads found"
-                  : "Provider scan complete"}
+                  : "No indexed match yet"}
               </h1>
               <p>
-                Search query <span>{report.query}</span>
+                Discovery plan{" "}
+                <span>
+                  {report.sourceMetadata.discoveryQueries.length || 1} query
+                  {report.sourceMetadata.discoveryQueries.length === 1
+                    ? ""
+                    : " variants"}
+                </span>
               </p>
             </div>
             <div className="report-actions">
@@ -355,6 +361,27 @@ export default function ResultsPage() {
             <p>{report.notice}</p>
           </div>
 
+          <div className="source-intelligence">
+            <div>
+              <span>SOURCE CONTEXT</span>
+              <strong>{report.sourceMetadata.title}</strong>
+            </div>
+            <p>
+              {[
+                report.sourceMetadata.platform,
+                report.sourceMetadata.author,
+                report.sourceMetadata.sourceDuration
+                  ? `${Math.round(report.sourceMetadata.sourceDuration)} seconds`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            {report.sourceMetadata.description && (
+              <blockquote>{report.sourceMetadata.description}</blockquote>
+            )}
+          </div>
+
           <div
             className={`transcript-intelligence transcript-${report.sourceMetadata.transcriptStatus}`}
           >
@@ -375,6 +402,18 @@ export default function ResultsPage() {
                 {report.sourceMetadata.discoveryPhrases.map((phrase) => (
                   <span key={phrase}>{phrase}</span>
                 ))}
+              </div>
+            )}
+            {report.sourceMetadata.discoveryQueries.length > 0 && (
+              <div className="query-plan">
+                <small>QUERY VARIANTS ATTEMPTED</small>
+                <div>
+                  {report.sourceMetadata.discoveryQueries
+                    .slice(0, 6)
+                    .map((query) => (
+                      <span key={query}>{query}</span>
+                    ))}
+                </div>
               </div>
             )}
           </div>
@@ -661,13 +700,14 @@ export default function ResultsPage() {
             </div>
           ) : (
             <div className="results-empty-state">
-              <span>NO FABRICATED MATCHES</span>
-              <h2>No candidates were returned.</h2>
+              <span>CURRENT COVERAGE EXHAUSTED</span>
+              <h2>No indexed match was found.</h2>
               <p>
-                Add credentials for YouTube, Vimeo, or X to run their official
-                discovery APIs. Add Reddit credentials or run the included
-                SearXNG service for transcript-led web discovery. TikTok,
-                Instagram, and Facebook require approved access models.
+                This does not prove that no repost exists. Relay searched the
+                available public indexes using source metadata and multiple
+                transcript variants. Connect official platform access to expand
+                coverage; Instagram, Facebook, and TikTok require approved
+                rights or research access for cross-account discovery.
               </p>
             </div>
           )}

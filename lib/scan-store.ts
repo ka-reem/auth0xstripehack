@@ -47,6 +47,7 @@ type RelayBindings = {
   REDDIT_USER_AGENT?: string;
   SEARXNG_URL?: string;
   SEARXNG_TOKEN?: string;
+  SEARXNG_ENGINES?: string;
   GOOGLE_CSE_API_KEY?: string;
   GOOGLE_CSE_ID?: string;
   TRANSCRIPTION_WORKER_URL?: string;
@@ -81,6 +82,7 @@ export function runtimeSecret(
     | "REDDIT_USER_AGENT"
     | "SEARXNG_URL"
     | "SEARXNG_TOKEN"
+    | "SEARXNG_ENGINES"
     | "GOOGLE_CSE_API_KEY"
     | "GOOGLE_CSE_ID"
     | "TRANSCRIPTION_WORKER_URL"
@@ -184,6 +186,9 @@ function deserialize(row: ScanRow): StoredScan {
       updatedAt: new Date(row.updated_at).toISOString(),
       dataMode: row.source_type === "demo" ? "controlled-demo" : "live",
       sourceMetadata: {
+        description: null,
+        canonicalUrl: null,
+        sourceDuration: null,
         ...emptyTranscriptFields(),
         ...storedMetadata,
       } as ScanResponse["sourceMetadata"],
