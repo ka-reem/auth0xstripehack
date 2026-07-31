@@ -4916,6 +4916,58 @@ textarea {
   color: var(--acid);
 }
 
+.free-visual-search {
+  margin-top: 22px;
+  padding: 14px 20px;
+  border: 1px solid rgba(201, 255, 74, 0.45);
+  border-radius: 10px;
+  background: rgba(201, 255, 74, 0.1);
+  color: var(--acid);
+  font: 700 13px/1 var(--font-geist-mono), monospace;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.prepared-frame-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.prepared-frame-grid button {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #f0efe9;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prepared-frame-grid img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.prepared-frame-grid small {
+  color: var(--acid);
+}
+
+.frame-search-error {
+  color: #ff9a87 !important;
+}
+
+@media (max-width: 720px) {
+  .prepared-frame-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .transcript-intelligence > div:first-child {
   display: flex;
   align-items: center;

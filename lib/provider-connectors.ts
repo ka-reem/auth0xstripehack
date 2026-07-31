@@ -97,37 +97,48 @@ type PublicYouTubeResult = {
   query?: string;
 };
 
-type ExtractedFrame = {
-  timestamp?: number;
-  content?: string;
-};
-
-type VisionWebPage = {
-  url?: string;
-  pageTitle?: string;
-  fullMatchingImages?: Array<{ url?: string }>;
-  partialMatchingImages?: Array<{ url?: string }>;
-};
-
-type VisionResponse = {
-  responses?: Array<{
-    webDetection?: {
-      pagesWithMatchingImages?: VisionWebPage[];
-    };
-    error?: { message?: string };
-  }>;
-};
-
-const publicIndexTargets: Partial<Record<Platform, string[]>> = {
-  TikTok: ["tiktok.com"],
-  Instagram: ["instagram.com/reel"],
-  Facebook: ["facebook.com/reel", "fb.watch"],
-  Vimeo: ["vimeo.com"],
-  X: ["x.com", "twitter.com"],
-  Reddit: ["reddit.com", "v.redd.it"],
-  Dailymotion: ["dailymotion.com/video", "dai.ly"],
-  Twitch: ["twitch.tv/videos", "twitch.tv/clip"],
-};
+const restrictedProviders: ProviderReport[] = [
+  {
+    platform: "TikTok",
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message:
+      "Not connected. TikTok was not searched; approved Research API access is required for cross-account discovery.",
+  },
+  {
+    platform: "Instagram",
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message:
+      "Not connected. Instagram was not searched; general cross-account Reels search is not available through the standard API.",
+  },
+  {
+    platform: "Facebook",
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message:
+      "Not connected. Facebook was not searched; Meta-approved Rights Manager access is required for private-corpus matching.",
+  },
+  {
+    platform: "Dailymotion",
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message:
+      "Not connected. Dailymotion was not searched because no supported global video-search connector is configured.",
+  },
+  {
+    platform: "Twitch",
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message:
+      "Not connected. Twitch was not searched; Helix does not provide spoken-content search across public VODs.",
+  },
+];
 
 const searxWaiters: Array<() => void> = [];
 let activeSearxRequests = 0;
@@ -296,7 +307,7 @@ function youtubeVideoId(value: string) {
   return null;
 }
 
-function samePublicResource(left: string, right: string) {
+export function samePublicResource(left: string, right: string) {
   try {
     const leftUrl = new URL(left);
     const rightUrl = new URL(right);
@@ -327,62 +338,9 @@ function failedReport(platform: Platform, message: string): ConnectorResult {
   };
 }
 
-async function searchPublicPlatformIndex(
-  platform: Exclude<Platform, "YouTube" | "Web">,
-  queries: string[],
+export async function searchVisualWeb(
   sourceUrl: string,
-  seeds: string[],
-  transcriptLed: boolean,
 ): Promise<ConnectorResult> {
-  const targets = publicIndexTargets[platform] ?? [];
-  const unquoted =
-    queries.find((value) => !value.trim().startsWith('"')) || queries[0] || "";
-  const quoted =
-    queries.find((value) => value.trim().startsWith('"')) || queries[1] || "";
-  const siteFilter = targets.map((target) => `site:${target}`).join(" OR ");
-  const targetedQueries = [unquoted, quoted]
-    .filter(Boolean)
-    .map((value) => `(${siteFilter}) ${value}`.trim())
-    .filter(
-      (value, index, values) =>
-        values.findIndex((item) => item.toLowerCase() === value.toLowerCase()) ===
-        index,
-    )
-    .slice(0, 2);
-
-  const indexed = await searchWebIndex(
-    targetedQueries,
-    seeds,
-    transcriptLed,
-    sourceUrl,
-    { addVideoVariants: false, maxQueries: 2 },
-  );
-  const matches = indexed.matches
-    .filter((match) => match.platform === platform)
-    .map((match) => ({
-      ...match,
-      id: `${platform.toLowerCase()}-public-${match.id}`,
-      signals: [
-        `${platform} public-index fallback`,
-        ...match.signals.filter((signal) => !signal.includes("discovery")),
-      ],
-    }));
-
-  return {
-    report: {
-      platform,
-      status: indexed.report.status,
-      searched: indexed.report.searched,
-      candidates: matches.length,
-      message: indexed.report.searched
-        ? `${platform} public-index agent checked ${targetedQueries.length} targeted query variants and retained ${matches.length} plausible candidates. Coverage is limited to pages exposed to public search engines.`
-        : `${platform} public-index agent could not run. ${indexed.report.message}`,
-    },
-    matches,
-  };
-}
-
-async function searchVisualWeb(sourceUrl: string): Promise<ConnectorResult> {
   const apiKey = runtimeSecret("GOOGLE_VISION_API_KEY");
   const workerUrl = runtimeSecret("TRANSCRIPTION_WORKER_URL");
   if (!apiKey) {
@@ -771,20 +729,22 @@ async function searchYouTube(
 
 async function searchVimeo(
   query: string,
-  queries: string[],
-  sourceUrl: string,
   seeds: string[],
   transcriptLed: boolean,
 ): Promise<ConnectorResult> {
   const accessToken = runtimeSecret("VIMEO_ACCESS_TOKEN");
   if (!accessToken) {
-    return searchPublicPlatformIndex(
-      "Vimeo",
-      queries,
-      sourceUrl,
-      seeds,
-      transcriptLed,
-    );
+    return {
+      report: {
+        platform: "Vimeo",
+        status: "credentials_required",
+        searched: false,
+        candidates: 0,
+        message:
+          "Not connected. Add VIMEO_ACCESS_TOKEN to query Vimeo's actual catalog API.",
+      },
+      matches: [],
+    };
   }
 
   try {
@@ -857,20 +817,22 @@ async function searchVimeo(
 
 async function searchX(
   query: string,
-  queries: string[],
-  sourceUrl: string,
   seeds: string[],
   transcriptLed: boolean,
 ): Promise<ConnectorResult> {
   const bearerToken = runtimeSecret("X_BEARER_TOKEN");
   if (!bearerToken) {
-    return searchPublicPlatformIndex(
-      "X",
-      queries,
-      sourceUrl,
-      seeds,
-      transcriptLed,
-    );
+    return {
+      report: {
+        platform: "X",
+        status: "credentials_required",
+        searched: false,
+        candidates: 0,
+        message:
+          "Not connected. Add X_BEARER_TOKEN to query X's actual recent-post API.",
+      },
+      matches: [],
+    };
   }
 
   try {
@@ -969,8 +931,6 @@ async function redditAccessToken(
 
 async function searchReddit(
   query: string,
-  queries: string[],
-  sourceUrl: string,
   seeds: string[],
   transcriptLed: boolean,
 ): Promise<ConnectorResult> {
@@ -979,13 +939,17 @@ async function searchReddit(
   const userAgent =
     runtimeSecret("REDDIT_USER_AGENT") || "web:relay-rights-monitor:1.0";
   if (!clientId || !clientSecret) {
-    return searchPublicPlatformIndex(
-      "Reddit",
-      queries,
-      sourceUrl,
-      seeds,
-      transcriptLed,
-    );
+    return {
+      report: {
+        platform: "Reddit",
+        status: "credentials_required",
+        searched: false,
+        candidates: 0,
+        message:
+          "Not connected. Add Reddit OAuth credentials to query Reddit's actual post API.",
+      },
+      matches: [],
+    };
   }
 
   try {
@@ -1286,14 +1250,14 @@ export function initialProviderReports(): ProviderReport[] {
   });
   return [
     queued("YouTube"),
-    queued("TikTok"),
-    queued("Instagram"),
-    queued("Facebook"),
+    restrictedProviders[0],
+    restrictedProviders[1],
+    restrictedProviders[2],
     queued("Vimeo"),
     queued("X"),
     queued("Reddit"),
-    queued("Dailymotion"),
-    queued("Twitch"),
+    restrictedProviders[3],
+    restrictedProviders[4],
     queued("Web"),
   ];
 }
@@ -1318,92 +1282,20 @@ export async function runProviderDiscovery({
   const transcriptLed = phrases.length > 0;
   const query = queries[0] || phrases[0] || title;
   const queryPlan = queries.length ? queries : [query];
-  const [
-    youtube,
-    tiktok,
-    instagram,
-    facebook,
-    vimeo,
-    x,
-    reddit,
-    dailymotion,
-    twitch,
-    web,
-    visualWeb,
-  ] = await Promise.all([
+  const [youtube, vimeo, x, reddit, web] = await Promise.all([
     searchYouTube(query, queryPlan, sourceUrl, seeds, transcriptLed),
-    searchPublicPlatformIndex(
-      "TikTok",
-      queryPlan,
-      sourceUrl,
-      seeds,
-      transcriptLed,
-    ),
-    searchPublicPlatformIndex(
-      "Instagram",
-      queryPlan,
-      sourceUrl,
-      seeds,
-      transcriptLed,
-    ),
-    searchPublicPlatformIndex(
-      "Facebook",
-      queryPlan,
-      sourceUrl,
-      seeds,
-      transcriptLed,
-    ),
-    searchVimeo(query, queryPlan, sourceUrl, seeds, transcriptLed),
-    searchX(query, queryPlan, sourceUrl, seeds, transcriptLed),
-    searchReddit(query, queryPlan, sourceUrl, seeds, transcriptLed),
-    searchPublicPlatformIndex(
-      "Dailymotion",
-      queryPlan,
-      sourceUrl,
-      seeds,
-      transcriptLed,
-    ),
-    searchPublicPlatformIndex(
-      "Twitch",
-      queryPlan,
-      sourceUrl,
-      seeds,
-      transcriptLed,
-    ),
+    searchVimeo(query, seeds, transcriptLed),
+    searchX(query, seeds, transcriptLed),
+    searchReddit(query, seeds, transcriptLed),
     searchWebIndex(queryPlan, seeds, transcriptLed, sourceUrl),
-    searchVisualWeb(sourceUrl),
   ]);
-  const webMatchesByUrl = new Map<string, ScanMatch>();
-  for (const match of [...visualWeb.matches, ...web.matches]) {
-    const existing = webMatchesByUrl.get(match.url);
-    if (!existing || match.confidence > existing.confidence) {
-      webMatchesByUrl.set(match.url, match);
-    }
-  }
-  const combinedWebMatches = [...webMatchesByUrl.values()];
-  const webReport: ProviderReport = {
-    platform: "Web",
-    status:
-      web.report.status === "completed" ||
-      visualWeb.report.status === "completed"
-        ? "completed"
-        : web.report.status,
-    searched: web.report.searched || visualWeb.report.searched,
-    candidates: combinedWebMatches.length,
-    message: `${visualWeb.report.message} ${web.report.message}`,
-  };
   const matchByUrl = new Map<string, ScanMatch>();
   for (const match of [
     ...youtube.matches,
-    ...tiktok.matches,
-    ...instagram.matches,
-    ...facebook.matches,
     ...vimeo.matches,
     ...x.matches,
     ...reddit.matches,
-    ...dailymotion.matches,
-    ...twitch.matches,
-    ...combinedWebMatches,
+    ...web.matches,
   ]) {
     const existing = matchByUrl.get(match.url);
     if (!existing || match.confidence > existing.confidence) {
@@ -1417,15 +1309,15 @@ export async function runProviderDiscovery({
   return {
     providers: [
       youtube.report,
-      tiktok.report,
-      instagram.report,
-      facebook.report,
+      restrictedProviders[0],
+      restrictedProviders[1],
+      restrictedProviders[2],
       vimeo.report,
       x.report,
       reddit.report,
-      dailymotion.report,
-      twitch.report,
-      webReport,
+      restrictedProviders[3],
+      restrictedProviders[4],
+      web.report,
     ],
     matches,
   };

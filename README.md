@@ -16,12 +16,11 @@ discovery signals that still require visual/audio comparison and human review.
 - Public-source media retrieval through yt-dlp without cookies or access
   bypasses.
 - Distinctive phrase extraction from supplied or generated transcripts.
-- Optional source-frame web detection that returns exact pages containing full
-  or partial visual matches.
+- Local source-frame extraction with a free Google Lens handoff.
 - Parallel discovery agents for YouTube, TikTok, Instagram, Facebook, Vimeo, X,
   Reddit, Dailymotion, Twitch, and the broader web.
-- Credential-free public-index fallbacks for every platform whose official API
-  is unavailable, restricted, or not configured.
+- Honest connector states: platforms are never marked searched unless their
+  real API or public catalog was queried.
 - Separate animated dashboard, multi-agent search sequence, results page, and
   case history.
 - JSON, print, and share-link evidence export.
@@ -84,16 +83,14 @@ Add any credentials you have to `.env`:
 YOUTUBE_API_KEY=
 VIMEO_ACCESS_TOKEN=
 X_BEARER_TOKEN=
-GOOGLE_VISION_API_KEY=
 REDDIT_CLIENT_ID=
 REDDIT_CLIENT_SECRET=
 REDDIT_USER_AGENT=web:relay-rights-monitor:1.0
 ```
 
-Without credentials, all ten agents still run. YouTube uses its public search
-index through the local worker, while the other platforms use targeted SearXNG
-queries. Official credentials replace those fallbacks where supported. Relay
-never fabricates matches.
+Without credentials, YouTube public search and the broader SearXNG web index
+run. Other platforms explicitly report that they were not searched. Relay never
+fabricates connector activity or matches.
 
 ## Auth and payments
 
@@ -128,10 +125,10 @@ configure `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ID`.
 5. Relay transcribes the source locally, unless the user supplied transcript
    text.
 6. Relay extracts distinctive spoken phrases and combines them with the title.
-7. Ten platform and web-index agents run in parallel. Where an official API is
-   unavailable, a domain-targeted public-index fallback runs instead.
-8. When Google Vision is configured, Relay extracts three source frames and
-   requests pages containing full or partial visual matches.
+7. Configured platform APIs, YouTube public search, and the broader web index
+   run in parallel. Unconnected platforms remain visibly unsearched.
+8. Relay can extract three source frames for free manual reverse-image searches
+   through Google Lens.
 9. Candidate URLs are normalized, deduplicated, scored, and persisted.
 10. The user reviews candidates on `/results`, records a decision, and exports
    evidence.
@@ -140,21 +137,16 @@ configure `GOOGLE_CSE_API_KEY` and `GOOGLE_CSE_ID`.
 
 - **YouTube:** official Data API keyword discovery when configured, with a
   credential-free public YouTube search fallback through the local worker.
-- **Vimeo:** official public catalog metadata search when configured, otherwise
-  a targeted public-index search.
-- **X:** official recent public-post search with video filters when configured,
-  otherwise a targeted public-index search.
-- **Reddit:** official OAuth search for public video/link posts when configured,
-  otherwise a targeted public-index search.
+- **Vimeo:** official public catalog metadata search when configured.
+- **X:** official recent public-post search with video filters when configured.
+- **Reddit:** official OAuth search for public video/link posts when configured.
 - **TikTok:** general public-video search requires approved Research API access;
   Display API access is limited to an authorized creator's videos.
 - **Instagram and Facebook:** general public cross-account video search is not
   available through their standard APIs. Relay searches pages visible to public
   search engines; Rights Manager remains Meta's native private-corpus workflow.
-- **Dailymotion:** the public API is oriented toward authenticated catalog and
-  account operations, so Relay uses a targeted public-index fallback.
-- **Twitch:** Helix channel/category search does not search spoken transcripts,
-  so Relay uses a targeted public-index fallback.
+- **Dailymotion:** not searched without a supported global video connector.
+- **Twitch:** not searched because Helix does not search spoken VOD content.
 - **Web index:** transcript phrases are searched across public, indexed pages.
   Search-engine indexing is incomplete and does not prove ownership.
 

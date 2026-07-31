@@ -29,6 +29,12 @@ const reviewLabels: Record<ReviewStatus, string> = {
   dismissed: "Dismissed",
 };
 
+type PreparedFrame = {
+  index: number;
+  timestamp: number | null;
+  dataUrl: string;
+};
+
 function BrandMark() {
   return (
     <span className="brand-mark">
@@ -68,6 +74,9 @@ export default function ResultsPage() {
   const [copied, setCopied] = useState(false);
   const [checkoutStarting, setCheckoutStarting] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
+  const [preparedFrames, setPreparedFrames] = useState<PreparedFrame[]>([]);
+  const [framesPreparing, setFramesPreparing] = useState(false);
+  const [framesError, setFramesError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -211,6 +220,41 @@ export default function ResultsPage() {
     await navigator.clipboard.writeText(window.location.href);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1_800);
+  }
+
+  async function prepareFreeVisualSearch() {
+    if (!report || framesPreparing) return;
+    setFramesPreparing(true);
+    setFramesError("");
+    try {
+      const response = await fetch("/api/frames", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: report.source }),
+      });
+      const payload = (await response.json()) as {
+        frames?: PreparedFrame[];
+        error?: string;
+      };
+      if (!response.ok || !payload.frames?.length) {
+        throw new Error(payload.error || "No source frames were extracted.");
+      }
+      setPreparedFrames(payload.frames);
+    } catch (error) {
+      setFramesError(
+        error instanceof Error ? error.message : "Frames could not be prepared.",
+      );
+    } finally {
+      setFramesPreparing(false);
+    }
+  }
+
+  function searchFrameWithLens(frame: PreparedFrame) {
+    const anchor = document.createElement("a");
+    anchor.href = frame.dataUrl;
+    anchor.download = `relay-source-frame-${frame.index}.jpg`;
+    anchor.click();
+    window.open("https://lens.google.com/", "_blank", "noopener,noreferrer");
   }
 
   function moveCursor(event: React.PointerEvent<HTMLElement>) {
@@ -721,10 +765,47 @@ export default function ResultsPage() {
               <h2>No exact post URLs were found.</h2>
               <p>
                 This does not prove that no repost exists. Keyword and
-                transcript indexes cannot identify caption-changed copies.
-                Configure Google Vision Web Detection to extract source frames
-                and return pages containing full or partial visual matches.
+                transcript indexes cannot identify caption-changed copies. Use
+                the free frame search below to check visually through Google
+                Lens without an API key or payment method.
               </p>
+              {report.sourceType === "link" && !preparedFrames.length && (
+                <button
+                  className="free-visual-search"
+                  type="button"
+                  onClick={() => void prepareFreeVisualSearch()}
+                  disabled={framesPreparing}
+                >
+                  {framesPreparing
+                    ? "Extracting source frames…"
+                    : "Prepare free visual searches"}
+                </button>
+              )}
+              {framesError && <p className="frame-search-error">{framesError}</p>}
+              {preparedFrames.length > 0 && (
+                <div className="prepared-frame-grid">
+                  {preparedFrames.map((frame) => (
+                    <button
+                      type="button"
+                      key={frame.index}
+                      onClick={() => searchFrameWithLens(frame)}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={frame.dataUrl}
+                        alt={`Source frame ${frame.index}`}
+                      />
+                      <span>
+                        Frame {frame.index}
+                        {frame.timestamp === null
+                          ? ""
+                          : ` · ${frame.timestamp.toFixed(1)}s`}
+                      </span>
+                      <small>Download + open Google Lens ↗</small>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
