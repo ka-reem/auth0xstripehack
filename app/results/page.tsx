@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   Platform,
+  ProviderReport,
   ReviewStatus,
   ScanErrorResponse,
   ScanResponse,
@@ -61,6 +62,17 @@ function compactNumber(value: number) {
     notation: "compact",
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function honestProviderReport(provider: ProviderReport): ProviderReport {
+  if (!provider.message.includes("public-index agent checked")) return provider;
+  return {
+    ...provider,
+    status: "restricted",
+    searched: false,
+    candidates: 0,
+    message: `Not connected. This saved report ran a domain-filtered web query; it did not query ${provider.platform}'s platform API or private video corpus.`,
+  };
 }
 
 function wait(milliseconds: number) {
@@ -135,6 +147,11 @@ export default function ResultsPage() {
     };
   }, []);
 
+  const displayedProviders = useMemo(
+    () => report?.providers.map(honestProviderReport) ?? [],
+    [report],
+  );
+
   const metrics = useMemo(() => {
     const matches = report?.matches ?? [];
     return {
@@ -143,13 +160,13 @@ export default function ResultsPage() {
         0,
       ),
       liveConnectors:
-        report?.providers.filter((provider) => provider.searched).length ?? 0,
+        displayedProviders.filter((provider) => provider.searched).length,
       reviewedCount: Object.keys(report?.reviews ?? {}).length,
       unauthorizedCount: Object.values(report?.reviews ?? {}).filter(
         (decision) => decision.status === "unauthorized",
       ).length,
     };
-  }, [report]);
+  }, [displayedProviders, report]);
 
   async function saveReview(
     matchId: string,
@@ -402,7 +419,14 @@ export default function ResultsPage() {
                   ? "LIVE METADATA SEARCH"
                   : "CONNECTORS PAUSED"}
             </span>
-            <p>{report.notice}</p>
+            <p>
+              {displayedProviders.some(
+                (provider, index) =>
+                  provider.searched !== report.providers[index]?.searched,
+              )
+                ? "Legacy public-index labels were corrected. Only genuine platform or catalog queries count as searched."
+                : report.notice}
+            </p>
           </div>
 
           <div className="source-intelligence">
@@ -510,7 +534,7 @@ export default function ResultsPage() {
           </div>
 
           <div className="provider-status-grid" aria-label="Provider status">
-            {report.providers.map((provider) => (
+            {displayedProviders.map((provider) => (
               <article
                 className={`provider-status provider-${provider.status}`}
                 key={provider.platform}
